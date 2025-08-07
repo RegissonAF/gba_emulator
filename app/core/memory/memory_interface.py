@@ -1,0 +1,40 @@
+class MMU():
+    def __init__(self):
+        self.memory = bytearray(0x10000) # 64KB of memory
+        self.io_registers = {}
+    
+    def read_byte(self, addr):
+        # Memory-mapped I/O handling
+        if 0xFF00 <= addr <= 0xFF7F:
+            return self._read_io(addr)
+        elif addr == 0xFFFF:
+            return self.memory[0xFFFF]
+        return self.memory[addr]
+    
+    def write_byte(self, addr, value):
+        value &= 0xFF
+        if 0xFF00 <= addr <= 0xFF7F:
+            self._write_io(addr, value)
+        elif addr == 0xFFFF:
+            self.memory[0xFFFF] = value
+        else:
+            self.memory[addr] = value
+
+    def _read_io(self, addr):
+        if addr == 0xFF00:
+            return self._read_joypad()
+        elif addr == 0xFF04:
+            return self._read_div()
+        return self.memory[addr]
+    
+    def _write_io(self, addr, value):
+        if addr == 0xFF04:
+            self.memory[addr] = 0
+        else:
+            self.memory[addr] = value
+
+    def _read_div(self):
+        return (self.internal_counter >> 8) & 0xFF
+    
+    def _write_div(self, value):
+        self.internal_counter = 0
