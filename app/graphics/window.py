@@ -3,12 +3,10 @@ from app.core.rom.header import read_header
 from app.graphics.config import SCALE, WINDOW_HEIGHT, WINDOW_WIDTH
 from app.graphics.renders import render_nintendo_logo
 
+
 def window():
     # pygame setup
     pygame.init()
-
-
-
 
     window = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
     clock = pygame.time.Clock()
@@ -27,10 +25,12 @@ def window():
         window.fill("white")
 
         # RENDER YOUR GAME HERE
-        screen = render_nintendo_logo(header.nintendo_logo_top, header.nintendo_logo_bot)
+        screen = render_nintendo_logo(
+            header.nintendo_logo_top, header.nintendo_logo_bot # type: ignore
+        )
         transformed = pygame.transform.scale_by(screen, SCALE)
-        window.blit(transformed, (0,0))
-        
+        window.blit(transformed, (0, 0))
+
         # flip() the display to put your work on screen
         pygame.display.flip()
 

@@ -1,9 +1,17 @@
 from app.core.memory.memory_interface import MMU
 
-class cpu():
+
+class cpu:
     def __init__(self, mmu):
 
         self.mmu = mmu
+
+        # Timer Integrations
+
+        self.internal_counter = 0  # DIV timer counter
+        self.tima = 0  # Timer counter
+        self.tma = 0  # Timer modelu
+        self.tac = 0  # Timer control
 
         # 8-bit registers
         self.A = 0x01
@@ -19,93 +27,64 @@ class cpu():
         self.PC = 0x0100
         self.SP = 0xFFFE
 
-        def get_flag(self, flag: str) -> bool:
-            FLAG_MASK = {
-                'Z': 0x80, # Zero flag (bit 7)
-                'N': 0x40, # Subtract (bit 6)
-                'H': 0x20, # Half Carry (bit 5)
-                'C': 0x10, # Carry (bit 4)
-            }
-            return (self.F & FLAG_MASK[flag]) != 0
-        
-        def set_flag(self, flag: str, state: bool):
-            FLAG_MASK = {
-                'Z': 0x80,
-                'N': 0x40,
-                'H': 0x20, 
-                'C': 0x10,
-            }
-            if state:
-                self.F |= FLAG_MASK[flag]
-            else:
-                self.F &= ~FLAG_MASK[flag]
-            self.F &= 0xF0
+        self.AF = 0x01B0
+        self.BC = 0x0013
+        self.DE = 0x00D8
+        self.HL = 0x014D
 
-        def fetch_byte(self):
-            byte = self.mmu.read_byte(self.PC)
-            self.PC += 1
-            return byte
-        
-        def _read_div(self):
-            return (self.internal_counter >> 8) & 0xFF
-        
-        def _write_div(self, value):
-            self.internal_counter = 0
+    @property
+    def AF(self):
+        return (self.A << 8) | self.F
 
-        @property
-        def AF(self):
-            return (self.A << 8) | self.F
-        
-        @AF.setter
-        def AF(self, value):
-            self.A = (value >> 8) & 0xFF
-            self.F = value & 0xF0 # lower nibble of F is always 0
-        
-        @property
-        def BC(self):
-            return (self.B << 8) | self.C
-        
-        @BC.setter
-        def BC(self, value):
-            self.B = (value >> 8) & 0xFF
-            self.C = value & 0xFF
+    @AF.setter
+    def AF(self, value):
+        self.A = (value >> 8) & 0xFF
+        self.F = value & 0xF0  # lower nibble of F is always 0
 
-        @property
-        def DE(self):
-            return (self.D << 8) | self.E
-        
-        @DE.setter
-        def DE(self, value):
-            self.D = (value >> 8) & 0xFF
-            self.E = value & 0xFF
+    @property
+    def BC(self):
+        return (self.B << 8) | self.C
 
-        @property
-        def HL(self):
-            return (self.H << 8) | self.L
-        
-        @HL.setter
-        def HL(self, value):
-            self.H = (value >> 8) & 0xFF
-            self.L = value & 0xFF
+    @BC.setter
+    def BC(self, value):
+        self.B = (value >> 8) & 0xFF
+        self.C = value & 0xFF
 
-        # Usage Instructions
+    @property
+    def DE(self):
+        return (self.D << 8) | self.E
 
-        def LD_BC_d16(self):
-            self.BC = self.fetch_word()
+    @DE.setter
+    def DE(self, value):
+        self.D = (value >> 8) & 0xFF
+        self.E = value & 0xFF
 
-        def PUSH_AF(self):
-            self.SP -= 2
-            self.write_word(self.SP, self.AF)
+    @property
+    def HL(self):
+        return (self.H << 8) | self.L
 
-        def write_word(self, addr, value):
-            self.memory[addr] = value & 0xFF
-            self.memory[addr + 1] = (value >> 8) & 0xFF
+    @HL.setter
+    def HL(self, value):
+        self.H = (value >> 8) & 0xFF
+        self.L = value & 0xFF
 
-        def ADD_HL_BC(self):
-            result = self.HL + self.BC
-            self.set_flag('N', False)
-            self.set_flag('H', (self.HL & 0xFFF) + (self.BC & 0xFFF) > 0xFFF)
-            self.set_flag('C', result >0xFFFF)
-            self.HL = result & 0xFFFF    
+    def fetch_instruction(self):
+        # Read ROM at program counter addr
+        # Enbiggen the program counter
+        # Return instruction class by OPCODE
+        pass
 
+    def fetch_data():
+        # Get the data passed by the memory/addr/acpu depending on addr mode from instruction
 
+        pass
+
+    def execute_instruction():
+        # Run instruction based on in_type with data from fetch_data()
+
+        pass
+
+    def cpu_step(self):
+        self.fetch_instruction()
+        self.fetch_data()
+        self.execute_instruction()
