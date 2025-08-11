@@ -74,12 +74,12 @@ class cpu:
         # Return instruction class by OPCODE
         pass
 
-    def fetch_data():
+    def fetch_data(self):
         # Get the data passed by the memory/addr/acpu depending on addr mode from instruction
 
         pass
 
-    def execute_instruction():
+    def execute_instruction(self):
         # Run instruction based on in_type with data from fetch_data()
 
         pass
