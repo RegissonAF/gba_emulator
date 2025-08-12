@@ -85,6 +85,32 @@ class RT_16BIT():
     SP = "RT_SP"
     PC = "RT_PC"
 
+# Map addressing modes to operand lengths
+operand_length_map = {
+    ADDR_MODE.IMP: 0,
+    ADDR_MODE.R: 0,
+    ADDR_MODE.R_R: 0,
+    ADDR_MODE.R_D8: 1,
+    ADDR_MODE.R_D16: 2,
+    ADDR_MODE.MR: 0,
+    ADDR_MODE.MR_R: 0,
+    ADDR_MODE.R_MR: 0,
+    ADDR_MODE.MR_D8: 1,
+    ADDR_MODE.A8_R: 1,
+    ADDR_MODE.R_A8: 1,
+    ADDR_MODE.H_R: 0,
+    ADDR_MODE.R_H: 0,
+    ADDR_MODE.A16_R: 2,
+    ADDR_MODE.R_A16: 2,
+    ADDR_MODE.D8: 1,
+    ADDR_MODE.D16: 2,
+    ADDR_MODE.R8: 1,
+    ADDR_MODE.SP_R8: 1,
+    ADDR_MODE.HL_SPR: 1,
+    ADDR_MODE.SP_HL: 0,
+    ADDR_MODE.A16_SP: 2,
+}
+
 class Instruction:
     def __init__(
         self,
@@ -102,6 +128,8 @@ class Instruction:
         self.conditional = conditional
         self.parameter_byte = parameter_byte
 
+# Fallback for illegal instructions
+ILLEGAL_INSTRUCTIONS = Instruction("ILLEGAL", ADDR_MODE.IMP)
 
 instructions = {
 
@@ -131,4 +159,11 @@ instructions = {
         ADDR_MODE.R,
         RT_16BIT.BC
     ),
+
+    # INC B: Increment B
+    0x04: Instruction(
+        IN_TYPE.INC,
+        ADDR_MODE.R,
+        RT_8BIT.B
+    )
 }
