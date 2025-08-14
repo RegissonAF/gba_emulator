@@ -1,14 +1,14 @@
 from app.core.cpu import instructions
 from app.core.cpu.instructions import (
     ADDR_MODE,
-    ILLEGAL_INSTRUCTIONS,
+    ILLEGAL_INSTRUCTION,
     IN_TYPE,
     RT_16BIT,
     RT_8BIT,
+    INSTRUCTIONS_DICT,
+    operand_length_map,
 )
 from app.core.memory.memory_interface import MMU
-from app.core.
-
 
 class cpu:
     def __init__(self, mmu):
@@ -41,10 +41,16 @@ class cpu:
         self.DE = 0x00D8
         self.HL = 0x014D
 
-        self.current_instruction = None
+        # Execute state
+        self.current_instruction
         self.current_operands = []
         self.is_extended = False
 
+        # Initialize register pairs
+        self._update_register_pairs()
+
+
+    # Property methods for register pairs with automatic updating
     @property
     def AF(self):
         return (self.A << 8) | self.F
@@ -81,13 +87,20 @@ class cpu:
         self.H = (value >> 8) & 0xFF
         self.L = value & 0xFF
 
+    def _update_register_pairs(self):
+        # Ensures consistency after direct register modification
+        self.BC = self.BC
+        self.DE = self.DE
+        self.HL = self.HL
+        self.AF = self.AF
+
     def fetch_instruction(self):
-        # Read first byte
+        # Read opcode
         opcode = self.mmu.read_byte(self.PC)
-        self.PC = (self.PC + 1) & 0xFFFF  # Increment and wrap
+        self.PC = (self.PC + 1) & 0xFFFF
         self.is_extended = False
 
-        # Handle CB-prefixed instructions
+        # Handle CB prefix
         if opcode == 0xCB:
             self.is_extended = True
             opcode = self.mmu.read_byte(self.PC)
@@ -96,41 +109,68 @@ class cpu:
         else:
             full_opcode = opcode
 
+        # Get instruction and operands
+        self.current_instruction = INSTRUCTIONS_DICT.get(full_opcode, ILLEGAL_INSTRUCTION)
+        lenght = operand_length_map.get(self.current_instruction.addr_mode, 0)
+
+        # Read operands
+        self.current_operands = []
+        for _ in range(lenght):
+            self.current_operands.append(self.mmu.read_byte(self.PC))
+            self.PC = (self.PC + 1) & 0xFFFF
+
         # Get instruction definition
-        self.current_instruction = instructions.get(full_opcode, ILLEGAL_INSTRUCTIONS)
+        self.current_instruction = INSTRUCTIONS_DICT.get(full_opcode, ILLEGAL_INSTRUCTION)
 
         # Determine operand length
-        length = operand_lenght_map.get(self.current_instruction.addr_mode, 0)
+        length = operand_length_map.get(self.current_instruction.addr_mode, 0)
 
         # Read operands
         self.current_operands = []
         for _ in range(length):
-            self.current_operands.append(self.mmu.read_bytes(self.PC))
+            self.current_operands.append(self.mmu.read_byte(self.PC))
             self.PC = (self.PC + 1) & 0xFFFF
 
-    def fetch_data(self):
+        self.current_instruction = INSTRUCTIONS_DICT.get(full_opcode, ILLEGAL_INSTRUCTION)
 
+
+    def fetch_data(self):
         if not self.current_instruction:
             return 0
+        
         addr_mode = self.current_instruction.addr_mode
         operands = self.current_operands
 
-        # Immediate value handling
-        if addr_mode in [ADDR_MODE.D8, ADDR_MODE.R8]:
-            return operands[0]
-        elif addr_mode == ADDR_MODE.D16:
-            return operands[0] | (operands[1] << 8)
+        # Dispatch table for all addressing modes
+        mode_handlers = {
+            # Immediate values
+            ADDR_MODE.D8: lambda: operands[0],
+            ADDR_MODE.R8: lambda: operands[0] - 256 if operands[0] > 127 else operands[0],
 
-        # Register-based adressing
-        elif addr_mode == ADDR_MODE.MR:
-            if self.current_instruction.rt_16bit == RT_16BIT.BC:
-                return self.mmu.read_byte(self.BC)
-            elif self.current_instruction.rt_16bit == RT_16BIT.DE:
-                return self.mmu.read_byte(self.DE)
-            elif self.current_instruction.rt_16bit == RT_16BIT.HL:
-                return self.mmu.read_byte(self.HL)
+            # Signed
+            ADDR_MODE.D16: lambda: operands[0] | (operands[1] << 8),
 
-        return 0  # Default for IMP/register modes
+            # Register-based
+            ADDR_MODE.R: lambda: getattr(self, self.current_instruction.rt_8bit),
+            ADDR_MODE.R_R: lambda: getattr(self, self.current_instruction.rt_8bit),
+
+            # Memory access
+            ADDR_MODE.MR: self._handle_mr_mode,
+            ADDR_MODE.MR_R: lambda: getattr(self, self.current_instruction.rt_16bit),
+            ADDR_MODE.R_MR: self._handle_mr_mode,
+            ADDR_MODE.A16_R: lambda: operands[0] | (operands[1] << 8),
+            ADDR_MODE.R_A16: lambda: operands[0] | (operands[1] << 8),
+            ADDR_MODE.H_R: lambda: self.HL, # Special case for H prefix
+
+            # Stack operations
+            ADDR_MODE.SP_R8: lambda: operands[0],
+            ADDR_MODE.HL_SPR: lambda: self.SP + (operands[0] - 256 if operands[0] > 127 else operands[0]),
+            ADDR_MODE.SP_HL: lambda: self.HL,
+            ADDR_MODE.A16_SP: lambda: operands[0] | (operands[1] << 8),
+
+            # Default/implied
+            ADDR_MODE.IMP: lambda: 0,
+        }
 
     def execute_instruction(self):
 
@@ -188,15 +228,26 @@ class cpu:
             ADDR_MODE.SP_HL: self._ld_sp_hl,
         }
 
+    def _handle_mr_mode(self):
+        if self.current_instruction.rt_16bit == RT_16BIT.BC:
+            return self.mmu.read_byte(self.BC)
+        elif self.current_instruction.rt_16bit == RT_16BIT.DE:
+            return self.mmu.read_byte(self.DE)
+        elif self.current_instruction.rt_16bit == RT_16BIT.HL:
+            return self.mmu.read_byte(self.HL)
+        return 0
+    
     def _ld_r_d16(self, rt_8bit, rt_16bit, data):
         if rt_16bit == RT_16BIT.BC: self.BC = data
         elif rt_16bit == RT_16BIT.DE: self.DE = data
         elif rt_16bit == RT_16BIT.HL: self.HL = data
         elif rt_16bit == RT_16BIT.SP: self.SP = data
     
-    def _ld_r_r(self, rt_8bit, rt_16bit, data):
-        src_val = getattr(self, rt_8bit)
-        setattr(self, rt_8bit, src_val)
+    def _ld_r_r(self, rt_8bit_dest, rt_8bit_src, rt_16bit, data):
+        if not rt_8bit_dest or not rt_8bit_src:
+            raise ValueError(f"Missing register specification far LD R_R instruction at PC = {self.PC:04X}")
+        src_val = getattr(self, rt_8bit_src)
+        setattr(self, rt_8bit_dest, src_val)
 
     def _ld_mr_r(self, rt_8bit, rt_16bit, data):
         addr = getattr(self, rt_16bit)

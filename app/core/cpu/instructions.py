@@ -118,6 +118,8 @@ class Instruction:
         addr_mode: str,
         rt_8bit=None,
         rt_16bit=None,
+        rt_8bit_dest=None,
+        rt_16bit_dest=None,
         conditional=None,
         parameter_byte=None,
     ):
@@ -125,13 +127,15 @@ class Instruction:
         self.addr_mode = addr_mode
         self.rt_8bit = rt_8bit
         self.rt_16bit = rt_16bit
+        self.rt_8bit_dest = rt_8bit_dest
+        self.rt_16bit_dest = rt_16bit_dest
         self.conditional = conditional
         self.parameter_byte = parameter_byte
 
 # Fallback for illegal instructions
-ILLEGAL_INSTRUCTIONS = Instruction("ILLEGAL", ADDR_MODE.IMP)
+ILLEGAL_INSTRUCTION = Instruction("ILLEGAL", ADDR_MODE.IMP)
 
-instructions = {
+INSTRUCTIONS_DICT = {
 
     # NOP: No Operation
     0x00: Instruction(
@@ -165,5 +169,15 @@ instructions = {
         IN_TYPE.INC,
         ADDR_MODE.R,
         RT_8BIT.B
-    )
+    ),
+
+    # LD B, C
+    0x41: Instruction(
+        IN_TYPE.LD,
+        ADDR_MODE.R_R,
+        rt_8bit_dest=RT_8BIT.B,
+        rt_16bit_dest=RT_8BIT.C
+    ),
 }
+
+__All__ = ['ADDR_MODE', 'ILLEGAL_INSTRUCTION', 'IN_TYPE', 'RT_16BIT', 'RT_8BIT', 'operand_legth_map', 'INSTRUCTIONS_DICT']
