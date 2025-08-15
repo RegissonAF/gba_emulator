@@ -2,15 +2,18 @@ class MMU:
     def __init__(self):
         self.memory = bytearray(0x10000)  # 64KB of memory
         self.io_registers = {}
+        # Div internal counter lives in MMU
+        self.internal_counter = 0
 
     # 8-bit Memory Operations
     def read_byte(self, addr):
         # Memory-mapped I/O handling
-        if 0xFF00 <= addr <= 0xFF7F:
+        if 0xFF0 <= addr <= 0xFF7F:
             return self._read_io(addr)
         elif addr == 0xFFFF:
             return self.memory[0xFFFF]
         return self.memory[addr]
+
 
     def write_byte(self, addr, value):
         value &= 0xFF
@@ -23,7 +26,7 @@ class MMU:
 
     def _read_io(self, addr):
         if addr == 0xFF00:
-            return self._read_joypad()
+            return self._read_joypad() # type: ignore
         elif addr == 0xFF04:
             return self._read_div()
         return self.memory[addr]
@@ -38,6 +41,7 @@ class MMU:
         return (self.internal_counter >> 8) & 0xFF
 
     def _write_div(self, value):
+        # writing any value to DIV resets the internal counter
         self.internal_counter = 0
 
     # 16-bit Memory Operations

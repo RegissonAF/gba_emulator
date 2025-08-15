@@ -68,14 +68,14 @@ class ADDR_MODE():
     A16_SP = "AM_A16_SP"
 
 class RT_8BIT():
-    A = "RT_A"
-    B = "RT_B"
-    C = "RT_C"
-    D = "RT_D"
-    E = "RT_E"
-    H = "RT_H"
-    L = "RT_L"
-    F = "RT_F"
+    A = "A"
+    B = "B"
+    C = "C"
+    D = "D"
+    E = "E"
+    H = "H"
+    L = "L"
+    F = "F"
     
 class RT_16BIT(): 
     AF = "RT_AF"
@@ -135,6 +135,8 @@ class Instruction:
 # Fallback for illegal instructions
 ILLEGAL_INSTRUCTION = Instruction("ILLEGAL", ADDR_MODE.IMP)
 
+
+
 INSTRUCTIONS_DICT = {
 
     # NOP: No Operation
@@ -144,7 +146,8 @@ INSTRUCTIONS_DICT = {
         ), 
     
     # LD BC, D16: Load 16-bit immediate into BC 
-    0x01: Instruction(IN_TYPE.LD,
+    0x01: Instruction(
+        IN_TYPE.LD,
         ADDR_MODE.R_D16,
         RT_16BIT.BC
         ),
@@ -171,6 +174,21 @@ INSTRUCTIONS_DICT = {
         RT_8BIT.B
     ),
 
+    # LD DE, D16: Load 16-bit immediate into DE
+    0x11: Instruction(
+        IN_TYPE.LD,
+        ADDR_MODE.R_D16,
+        RT_16BIT.DE
+    ),
+
+    # LD (DE), A: Load A into memory pointed by DE
+    0x12: Instruction(
+        IN_TYPE.LD,
+        ADDR_MODE.MR_R,
+        RT_16BIT.DE,
+        RT_8BIT.A
+    ),
+
     # LD B, C
     0x41: Instruction(
         IN_TYPE.LD,
@@ -178,6 +196,26 @@ INSTRUCTIONS_DICT = {
         rt_8bit_dest=RT_8BIT.B,
         rt_16bit_dest=RT_8BIT.C
     ),
+
+    # ADC A, C
+    0x89: Instruction(
+        IN_TYPE.ADC,
+        ADDR_MODE.R_R,
+        RT_8BIT.A,
+        RT_8BIT.C
+    ),
+
+    # SBC A, C
+    0x99: Instruction(
+        IN_TYPE.SBC,
+        ADDR_MODE.R_R,
+        RT_8BIT.A,
+        RT_8BIT.C
+    ),
+    0xC3: Instruction(
+        IN_TYPE.JP,
+        ADDR_MODE.D16,
+    )
 }
 
-__All__ = ['ADDR_MODE', 'ILLEGAL_INSTRUCTION', 'IN_TYPE', 'RT_16BIT', 'RT_8BIT', 'operand_legth_map', 'INSTRUCTIONS_DICT']
+__All__ = ['ADDR_MODE', 'ILLEGAL_INSTRUCTION', 'IN_TYPE', 'RT_16BIT', 'RT_8BIT', 'operand_length_map', 'INSTRUCTIONS_DICT']
