@@ -355,96 +355,54 @@ class CPU:
         rt_8bit_dest=None,
         rt_16bit_dest=None,
     ):
+        """Handle Load (LD) instruction."""
         def ld_r_d8():
-            setattr(self, rt_8bit, data)
+            setattr(self, rt_8bit, data & 0xFF)
 
         def ld_rr_d16():
-            setattr(self, rt_16bit, data)
+            setattr(self, rt_16bit, data & 0xFFFF)
 
         def ld_r1_r2():
             setattr(self, rt_8bit_dest, getattr(self, rt_16bit_dest))
 
         def ld_mr_r():
             addr = getattr(self, rt_16bit)
-
             value = getattr(self, rt_8bit)
             self.mmu.write_byte(addr, value)
 
         def ld_r_mr():
             addr = getattr(self, rt_16bit)
-
-            try:
-                value = self.mmu.memory[addr]
-
-            except Exception:
-                value = self.mmu.read_byte(addr)
-
+            value = self.mmu.read_byte(addr)
             setattr(self, rt_8bit, value)
 
         def ld_a16_r():
             addr = data
-
             value = getattr(self, rt_8bit)
-
-            try:
-                self.mmu.memory[addr] = value
-
-            except Exception:
-                self.mmu.write_byte(addr, value)
+            self.mmu.write_byte(addr, value)
 
         def ld_r_a16():
             addr = data
-
-            try:
-                value = self.mmu.memory[addr]
-
-            except Exception:
-                value = self.mmu.read_byte(addr)
-
+            value = self.mmu.read_byte(addr)
             setattr(self, rt_8bit, value)
 
         def ld_c_r():
             addr = 0xFF00 + self.C
-
             value = getattr(self, rt_8bit)
-
-            try:
-                self.mmu.memory[addr] = value
-
-            except Exception:
-                self.mmu.write_byte(addr, value)
+            self.mmu.write_byte(addr, value)
 
         def ld_r_c():
             addr = 0xFF00 + self.C
-
-            try:
-                value = self.mmu.memory[addr]
-
-            except Exception:
-                value = self.mmu.read_byte(addr)
-
+            value = self.mmu.read_byte(addr)
             setattr(self, rt_8bit, value)
 
         def ld_a8_r():
             addr = 0xFF00 + (data & 0xFF)
-
             value = getattr(self, rt_8bit)
-
-            try:
-                self.mmu.memory[addr] = value
-
-            except Exception:
-                self.mmu.write_byte(addr, value)
+            self.mmu.write_byte(addr, value)
 
         def ld_r_a8():
             addr = 0xFF00 + (data & 0xFF)
-
-            try:
-                value = self.mmu.memory[addr]
-
-            except Exception:
-                value = self.mmu.read_byte(addr)
-
+            value = self.mmu.read_byte(addr)
             setattr(self, rt_8bit, value)
 
         def ld_sp_hl():
@@ -452,25 +410,14 @@ class CPU:
 
         def ld_a16_sp():
             addr = data
-
             sp = self.SP
-
-            try:
-                self.mmu.memory[addr] = sp & 0xFF
-
-                self.mmu.memory[addr + 1] = (sp >> 8) & 0xFF
-
-            except Exception:
-                self.mmu.write_byte(addr, sp & 0xFF)
-
-                self.mmu.write_byte(addr + 1, (sp >> 8) & 0xFF)
+            self.mmu.write_byte(addr, sp & 0xFF)
+            self.mmu.write_byte(addr + 1, (sp >> 8) & 0xFF)
 
         def ld_hl_sp_r8():
             offset = data if data < 0x80 else data - 0x100
-
             self.HL = (self.SP + offset) & 0xFFFF
-
-            # Set flags as per instruction (not shown here)
+            # TODO: set flags properly (Z=0, N=0, H/C depend on addition)
 
         dispatch = {
             ADDR_MODE.R_D8: ld_r_d8,
@@ -478,19 +425,18 @@ class CPU:
             ADDR_MODE.R_R: ld_r1_r2,
             ADDR_MODE.MR_R: ld_mr_r,
             ADDR_MODE.R_MR: ld_r_mr,
-            getattr(ADDR_MODE, "A16_R", None): ld_a16_r,
-            getattr(ADDR_MODE, "R_A16", None): ld_r_a16,
-            getattr(ADDR_MODE, "C_R", None): ld_c_r,
-            getattr(ADDR_MODE, "R_C", None): ld_r_c,
-            getattr(ADDR_MODE, "A8_R", None): ld_a8_r,
-            getattr(ADDR_MODE, "R_A8", None): ld_r_a8,
-            getattr(ADDR_MODE, "SP_HL", None): ld_sp_hl,
-            getattr(ADDR_MODE, "A16_SP", None): ld_a16_sp,
-            getattr(ADDR_MODE, "HL_SP_R8", None): ld_hl_sp_r8,
+            ADDR_MODE.A16_R: ld_a16_r,
+            ADDR_MODE.R_A16: ld_r_a16,
+            ADDR_MODE.C_R: ld_c_r,
+            ADDR_MODE.R_C: ld_r_c,
+            ADDR_MODE.A8_R: ld_a8_r,
+            ADDR_MODE.R_A8: ld_r_a8,
+            ADDR_MODE.SP_HL: ld_sp_hl,
+            ADDR_MODE.A16_SP: ld_a16_sp,
+            ADDR_MODE.HL_SPR: ld_hl_sp_r8,
         }
 
         handler = dispatch.get(addr_mode)
-
         if handler:
             handler()
         else:
@@ -710,6 +656,7 @@ class CPU:
             raise RuntimeError(f"Unhandled HALT addressing mode: {addr_mode}")
 
     def _handle_mr_mode(self):
+        """Handle Memory Read (MR) addressing mode."""
         if self.current_instruction.rt_16bit == RT_16BIT.BC:
             return self.mmu.read_byte(self.BC)
 
@@ -720,17 +667,6 @@ class CPU:
             return self.mmu.read_byte(self.HL)
 
         return 0
-
-    def _handle_ld(self, addr_mode, rt_8bit, rt_16bit, data):
-        # Handles LD reg, imm and LD reg16, imm16
-
-        if addr_mode == ADDR_MODE.R_D16 and rt_16bit:
-            setattr(self, rt_16bit, data)
-
-        elif addr_mode == ADDR_MODE.R_D8 and rt_8bit:
-            setattr(self, rt_8bit, data)
-
-        self.SP = self.HL
 
     def _handle_and(self, addr_mode, rt_8bit, rt_16bit, data):
         """Handle AND (A & value) instruction."""

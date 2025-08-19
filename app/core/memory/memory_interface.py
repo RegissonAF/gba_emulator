@@ -34,8 +34,9 @@ class MMU:
         return self.memory[addr]
 
     def _write_io(self, addr, value):
-        if addr == 0xFF04:
-            self.memory[addr] = 0
+        if addr == 0xFF04:  # DIV register
+            self._write_div(value)  # reset internal counter
+            self.memory[addr] = 0  # DIV register always reads as 0 after write
         else:
             self.memory[addr] = value
 
