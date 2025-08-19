@@ -180,7 +180,7 @@ INSTRUCTIONS_DICT = {
     0xFE: Instruction(IN_TYPE.CP, ADDR_MODE.R_D8, RT_8BIT.A),
 }
 
-__All__ = [
+__all__ = [
     "ADDR_MODE",
     "ILLEGAL_INSTRUCTION",
     "IN_TYPE",

@@ -14,10 +14,12 @@ class MMU:
             return self.memory[0xFFFF]
         return self.memory[addr]
 
-
     def write_byte(self, addr, value):
         value &= 0xFF
-        if 0xFF00 <= addr <= 0xFF7F:
+        if addr == 0xFF00:  # DIV register
+            self._write_div(value)  # resets internal counter
+            self.memory[addr] = 0  # DIV register always reads as 0 after write
+        elif 0xFF00 <= addr <= 0xFF7F:
             self._write_io(addr, value)
         elif addr == 0xFFFF:
             self.memory[0xFFFF] = value
@@ -26,7 +28,7 @@ class MMU:
 
     def _read_io(self, addr):
         if addr == 0xFF00:
-            return self._read_joypad() # type: ignore
+            return self._read_joypad()  # type: ignore
         elif addr == 0xFF04:
             return self._read_div()
         return self.memory[addr]
