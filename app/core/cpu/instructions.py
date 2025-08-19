@@ -1,5 +1,4 @@
 class IN_TYPE:
-    
     # Load/Transfer Instructions
     LD = "IN_LD"
     LDH = "IN_LDH"
@@ -43,7 +42,8 @@ class IN_TYPE:
     SCF = "IN_SCF"
     CCF = "IN_CCF"
 
-class ADDR_MODE():
+
+class ADDR_MODE:
     IMP = "AM_IMP"
     R = "AM_R"
     R_R = "AM_R_R"
@@ -67,7 +67,8 @@ class ADDR_MODE():
     SP_HL = "AM_SP_HL"
     A16_SP = "AM_A16_SP"
 
-class RT_8BIT():
+
+class RT_8BIT:
     A = "A"
     B = "B"
     C = "C"
@@ -76,14 +77,23 @@ class RT_8BIT():
     H = "H"
     L = "L"
     F = "F"
-    
-class RT_16BIT(): 
-    AF = "RT_AF"
-    BC = "RT_BC"
-    DE = "RT_DE"
-    HL = "RT_HL"
-    SP = "RT_SP"
-    PC = "RT_PC"
+
+
+class RT_16BIT:
+    AF = "AF"
+    BC = "BC"
+    DE = "DE"
+    HL = "HL"
+    SP = "SP"
+    PC = "PC"
+
+
+class CONDITIONAL_MODE:
+    Z = "Z"
+    NZ = "NZ"
+    C = "C"
+    NC = "NC"
+
 
 # Map addressing modes to operand lengths
 operand_length_map = {
@@ -111,6 +121,7 @@ operand_length_map = {
     ADDR_MODE.A16_SP: 2,
 }
 
+
 class Instruction:
     def __init__(
         self,
@@ -132,90 +143,49 @@ class Instruction:
         self.conditional = conditional
         self.parameter_byte = parameter_byte
 
+
 # Fallback for illegal instructions
 ILLEGAL_INSTRUCTION = Instruction("ILLEGAL", ADDR_MODE.IMP)
 
 
-
 INSTRUCTIONS_DICT = {
-
     # NOP: No Operation
-    0x00: Instruction(
-        IN_TYPE.NOP,
-        ADDR_MODE.IMP
-        ), 
-    
-    # LD BC, D16: Load 16-bit immediate into BC 
-    0x01: Instruction(
-        IN_TYPE.LD,
-        ADDR_MODE.R_D16,
-        RT_16BIT.BC
-        ),
-
+    0x00: Instruction(IN_TYPE.NOP, ADDR_MODE.IMP),
+    # LD BC, D16: Load 16-bit immediate into BC
+    0x01: Instruction(IN_TYPE.LD, ADDR_MODE.R_D16, RT_16BIT.BC),
     # LD (BC), A: Load A into memory pointed by BC
-    0x02: Instruction(
-        IN_TYPE.LD,
-        ADDR_MODE.MR_R,
-        RT_16BIT.BC,
-        RT_8BIT.A
-    ),
-
+    0x02: Instruction(IN_TYPE.LD, ADDR_MODE.MR_R, RT_16BIT.BC, RT_8BIT.A),
     # INC BC: Increment BC
-    0x03: Instruction(
-        IN_TYPE.INC,
-        ADDR_MODE.R,
-        RT_16BIT.BC
-    ),
-
+    0x03: Instruction(IN_TYPE.INC, ADDR_MODE.R, RT_16BIT.BC),
     # INC B: Increment B
-    0x04: Instruction(
-        IN_TYPE.INC,
-        ADDR_MODE.R,
-        RT_8BIT.B
-    ),
-
+    0x04: Instruction(IN_TYPE.INC, ADDR_MODE.R, RT_8BIT.B),
     # LD DE, D16: Load 16-bit immediate into DE
-    0x11: Instruction(
-        IN_TYPE.LD,
-        ADDR_MODE.R_D16,
-        RT_16BIT.DE
-    ),
-
+    0x11: Instruction(IN_TYPE.LD, ADDR_MODE.R_D16, None, rt_16bit=RT_16BIT.DE),
     # LD (DE), A: Load A into memory pointed by DE
-    0x12: Instruction(
-        IN_TYPE.LD,
-        ADDR_MODE.MR_R,
-        RT_16BIT.DE,
-        RT_8BIT.A
-    ),
-
+    0x12: Instruction(IN_TYPE.LD, ADDR_MODE.MR_R, RT_16BIT.DE, RT_8BIT.A),
+    0x18: Instruction(IN_TYPE.JR, ADDR_MODE.R8),
+    0x28: Instruction(IN_TYPE.JR, ADDR_MODE.R8, conditional=CONDITIONAL_MODE.Z),
     # LD B, C
     0x41: Instruction(
-        IN_TYPE.LD,
-        ADDR_MODE.R_R,
-        rt_8bit_dest=RT_8BIT.B,
-        rt_16bit_dest=RT_8BIT.C
+        IN_TYPE.LD, ADDR_MODE.R_R, rt_8bit_dest=RT_8BIT.B, rt_8bit=RT_8BIT.C
     ),
-
     # ADC A, C
-    0x89: Instruction(
-        IN_TYPE.ADC,
-        ADDR_MODE.R_R,
-        RT_8BIT.A,
-        RT_8BIT.C
-    ),
-
+    0x89: Instruction(IN_TYPE.ADC, ADDR_MODE.R_R, RT_8BIT.A, RT_8BIT.C),
     # SBC A, C
-    0x99: Instruction(
-        IN_TYPE.SBC,
-        ADDR_MODE.R_R,
-        RT_8BIT.A,
-        RT_8BIT.C
-    ),
+    0x99: Instruction(IN_TYPE.SBC, ADDR_MODE.R_R, RT_8BIT.A, RT_8BIT.C),
     0xC3: Instruction(
         IN_TYPE.JP,
         ADDR_MODE.D16,
-    )
+    ),
+    0xFE: Instruction(IN_TYPE.CP, ADDR_MODE.R_D8, RT_8BIT.A),
 }
 
-__All__ = ['ADDR_MODE', 'ILLEGAL_INSTRUCTION', 'IN_TYPE', 'RT_16BIT', 'RT_8BIT', 'operand_length_map', 'INSTRUCTIONS_DICT']
+__All__ = [
+    "ADDR_MODE",
+    "ILLEGAL_INSTRUCTION",
+    "IN_TYPE",
+    "RT_16BIT",
+    "RT_8BIT",
+    "operand_length_map",
+    "INSTRUCTIONS_DICT",
+]

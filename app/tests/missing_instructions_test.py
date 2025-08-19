@@ -5,6 +5,7 @@ from collections import defaultdict
 from app.core.memory.memory_interface import MMU
 from app.core.cpu import instructions
 
+
 def test_print_missing_instructions_from_rom():
     """
     Diagnostic pytest: scan the first .gb ROM found in the repo (0x0000..0x7FFF),
@@ -21,7 +22,9 @@ def test_print_missing_instructions_from_rom():
 
     # Try bulk copy into MMU if possible (best-effort)
     try:
-        mmu.memory[0 : min(len(rom_bytes), len(mmu.memory))] = rom_bytes[: min(len(rom_bytes), len(mmu.memory))]
+        mmu.memory[0 : min(len(rom_bytes), len(mmu.memory))] = rom_bytes[
+            : min(len(rom_bytes), len(mmu.memory))
+        ]
     except Exception:
         for i, b in enumerate(rom_bytes[: min(len(rom_bytes), 0x8000)]):
             try:

@@ -11,10 +11,8 @@ from app.core.memory.memory_interface import MMU
 
 
 class cpu:
-
     # Initialization and register management
     def __init__(self, mmu):
-
         # Ensure that basic execution state exists before other init code that may reference it
         self.current_instruction = None
         self.current_operands = []
@@ -122,8 +120,7 @@ class cpu:
 
         # Get instruction and operands
         self.current_instruction = INSTRUCTIONS_DICT.get(
-            full_opcode, 
-            ILLEGAL_INSTRUCTION
+            full_opcode, ILLEGAL_INSTRUCTION
         )
 
         # Determine operand length and read operands (one pass)
@@ -152,7 +149,7 @@ class cpu:
                 return getattr(self, rt_8bit)
             if rt_16bit:
                 return getattr(self, rt_16bit)
-        
+
         def get_mem_reg():
             if hasattr(self, "_handle_mr_mode"):
                 return self._handle_mr_mode()
@@ -177,7 +174,13 @@ class cpu:
 
         dispatch = {
             getattr(ADDR_MODE, "D8", None): lambda: operands[0] if operands else 0,
-            getattr(ADDR_MODE, "R8", None): lambda: (operands[0] - 256 if operands and operands[0] > 127 else operands[0] if operands else 0),
+            getattr(ADDR_MODE, "R8", None): lambda: (
+                operands[0] - 256
+                if operands and operands[0] > 127
+                else operands[0]
+                if operands
+                else 0
+            ),
             getattr(ADDR_MODE, "D16", None): imm16,
             getattr(ADDR_MODE, "A16_R", None): imm16,
             getattr(ADDR_MODE, "R_A16", None): imm16,
@@ -196,11 +199,9 @@ class cpu:
         return 0
 
     def execute_instruction(self):
-
         if not self.current_instruction:
             return
 
-        instruction = self.current_instruction
         in_type = self.current_instruction.in_type
         addr_mode = self.current_instruction.addr_mode
         rt_8bit = self.current_instruction.rt_8bit
@@ -233,17 +234,14 @@ class cpu:
 
         handler = instruction_handlers.get(in_type)
         if handler:
-            handler(
-                addr_mode,
-                rt_8bit,
-                rt_16bit,
-                data
-                )
+            handler(addr_mode, rt_8bit, rt_16bit, data)
         else:
             raise RuntimeError(f"Unhandled instruction: {in_type} at PC ={self.PC:04X}")
-   
+
     def _raise_missing_register(self, reg_name):
-        raise ValueError(f"Missing register specification for {reg_name} in instruction at PC = {self.PC:04X}")
+        raise ValueError(
+            f"Missing register specification for {reg_name} in instruction at PC = {self.PC:04X}"
+        )
 
         addr_mode = self.current_instruction.addr_mode
         operands = self.current_operands
@@ -252,8 +250,12 @@ class cpu:
         mode_handlers = {
             # Immediate values
             ADDR_MODE.D8: lambda: operands[0],
-            ADDR_MODE.R8: lambda: operands[0] - 256 if operands[0] > 127 else operands[0],
-            ADDR_MODE.R: lambda: getattr(self, self.current_instruction.rt_8bit) if self.current_instruction.rt_8bit is not None else self._raise_missing_register("rt_8bit"),
+            ADDR_MODE.R8: lambda: operands[0] - 256
+            if operands[0] > 127
+            else operands[0],
+            ADDR_MODE.R: lambda: getattr(self, self.current_instruction.rt_8bit)
+            if self.current_instruction.rt_8bit is not None
+            else self._raise_missing_register("rt_8bit"),
             ADDR_MODE.D16: lambda: operands[0] | (operands[1] << 8),
             # Register-based
             ADDR_MODE.R: lambda: getattr(self, self.current_instruction.rt_8bit),
@@ -300,8 +302,16 @@ class cpu:
     def _handle_nop(self, *args):
         """No operation (NOP) instruction handler."""
         pass
-    
-    def _handle_ld(self, addr_mode, rt_8bit=None, rt_16bit=None, data=None, rt_8bit_dest=None, rt_16bit_dest=None):
+
+    def _handle_ld(
+        self,
+        addr_mode,
+        rt_8bit=None,
+        rt_16bit=None,
+        data=None,
+        rt_8bit_dest=None,
+        rt_16bit_dest=None,
+    ):
         def ld_r_d8():
             setattr(self, rt_8bit, data)
 
@@ -414,9 +424,10 @@ class cpu:
         if handler:
             handler()
         else:
-            raise NotImplementedError(f"LD handler: Unhandled addr_mode {addr_mode}, args: {rt_8bit}, {rt_16bit}, {data}")
-        
-   
+            raise NotImplementedError(
+                f"LD handler: Unhandled addr_mode {addr_mode}, args: {rt_8bit}, {rt_16bit}, {data}"
+            )
+
     def _handle_inc(self, addr_mode, rt_8bit, rt_16bit, data):
         if addr_mode == ADDR_MODE.R:
             if rt_16bit:  # 16-bit register
@@ -428,7 +439,7 @@ class cpu:
                 new_value = (value + 1) & 0xFF
                 setattr(self, reg, new_value)
                 self.set_flags(z=new_value == 0, n=0, h=(value & 0x0F) == 0x0F)
-    
+
     def _handle_dec(self, addr_mode, rt_8bit, rt_16bit, data):
         if addr_mode == ADDR_MODE.R:
             if rt_16bit:  # 16-bit register
@@ -506,7 +517,7 @@ class cpu:
                 self.PC = getattr(self, rt_16bit)
             else:
                 raise RuntimeError(f"Unhandled JP addressing mode: {addr_mode}")
-    
+
     def _handle_jr(self, addr_mode, rt_8bit, rt_16bit, data):
         """Handle JR (jump relative) instruction."""
         if self._check_condition():
@@ -529,11 +540,13 @@ class cpu:
     def _handle_ret(self, addr_mode, rt_8bit, rt_16bit, data):
         """Handle RET instruction."""
         if self._check_condition():
-            self.PC = (self.mmu.read_byte(self.SP) | (self.mmu.read_byte(self.SP + 1) << 8)) & 0xFFFF
+            self.PC = (
+                self.mmu.read_byte(self.SP) | (self.mmu.read_byte(self.SP + 1) << 8)
+            ) & 0xFFFF
             self.SP = (self.SP + 2) & 0xFFFF
         else:
             raise RuntimeError(f"Unhandled RET addressing mode: {addr_mode}")
-    
+
     def _handle_push(self, addr_mode, rt_8bit, rt_16bit, data):
         """Handle PUSH instruction."""
         if addr_mode == ADDR_MODE.R:
@@ -543,12 +556,14 @@ class cpu:
             self.SP = (self.SP - 2) & 0xFFFF
         else:
             raise RuntimeError(f"Unhandled PUSH addressing mode: {addr_mode}")
-    
+
     def _handle_pop(self, addr_mode, rt_8bit, rt_16bit, data):
         """Handle POP instruction."""
         if addr_mode == ADDR_MODE.R:
             self.SP = (self.SP + 2) & 0xFFFF
-            reg_value = (self.mmu.read_byte(self.SP - 1) << 8) | self.mmu.read_byte(self.SP - 2)
+            reg_value = (self.mmu.read_byte(self.SP - 1) << 8) | self.mmu.read_byte(
+                self.SP - 2
+            )
             setattr(self, rt_16bit, reg_value)
         else:
             raise RuntimeError(f"Unhandled POP addressing mode: {addr_mode}")
@@ -569,9 +584,8 @@ class cpu:
         if self._check_condition():
             self.halted = True
         else:
-            raise RuntimeError(f"Unhandled HALT addressing mode: {addr_mode}"
-            )
-    
+            raise RuntimeError(f"Unhandled HALT addressing mode: {addr_mode}")
+
     def _handle_mr_mode(self):
         if self.current_instruction.rt_16bit == RT_16BIT.BC:
             return self.mmu.read_byte(self.BC)
@@ -580,7 +594,7 @@ class cpu:
         elif self.current_instruction.rt_16bit == RT_16BIT.HL:
             return self.mmu.read_byte(self.HL)
         return 0
-    
+
     def _handle_ld(self, addr_mode, rt_8bit, rt_16bit, data):
         # Handles LD reg, imm and LD reg16, imm16
         if addr_mode == ADDR_MODE.R_D16 and rt_16bit:
@@ -588,7 +602,7 @@ class cpu:
         elif addr_mode == ADDR_MODE.R_D8 and rt_8bit:
             setattr(self, rt_8bit, data)
         self.SP = self.HL
-    
+
     def _handle_and(self, addr_mode, rt_8bit, rt_16bit, data):
         """Handle AND (A & value) instruction."""
         if addr_mode == ADDR_MODE.R_R:
@@ -630,32 +644,13 @@ class cpu:
 
     def _handle_cp(self, addr_mode, rt_8bit, rt_16bit, data):
         """Handle CP (compare A with value) instruction."""
-        if addr_mode == ADDR_MODE.R_R:
-            value = getattr(self, rt_8bit)
-        elif addr_mode == ADDR_MODE.R_D8:
-            value = data
-        elif addr_mode == ADDR_MODE.R_MR:
-            value = self.mmu.read_byte(self.HL)
-        else:
-            raise RuntimeError(f"Unhandled CP addressing mode: {addr_mode}")
         a = self.A
-        result = a - value
+        result = a - data
         borrow = result < 0
-        half_borrow = (a & 0x0F) < (value & 0x0F)
+        half_borrow = (a & 0x0F) < (data & 0x0F)
         self.set_flags(z=(result & 0xFF) == 0, n=1, h=half_borrow, c=borrow)
 
-    
-
-        value = getattr(self, rt_16bit)
-        self._add_hl(value)
-
-    
-
-        value = self.mmu.read_byte(self.HL)
-        self._sub_a(value)
-
     def set_flags(self, z=None, n=None, h=None, c=None):
-
         flags = self.F
         if z is not None:
             flags = (flags & 0x7F) | (z << 7)
