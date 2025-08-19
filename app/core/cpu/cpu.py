@@ -22,6 +22,8 @@ class CPU:
 
         self.is_extended = False
 
+        self.stopped = False
+
         # Use provided mmu or create a default one
 
         self.mmu = mmu if mmu is not None else MMU()
@@ -201,7 +203,7 @@ class CPU:
 
         imm16 = (operands[0] | (operands[1] << 8)) if len(operands) >= 2 else None
 
-        r8_signed = self._signed8(operands[0]) if len(operands) >= 1 else None
+        r8_signed = self._signed(operands[0]) if len(operands) >= 1 else None
 
         dispatch = {
             ADDR_MODE.D8: lambda: imm8,
@@ -356,6 +358,7 @@ class CPU:
         rt_16bit_dest=None,
     ):
         """Handle Load (LD) instruction."""
+
         def ld_r_d8():
             setattr(self, rt_8bit, data & 0xFF)
 
@@ -416,8 +419,13 @@ class CPU:
 
         def ld_hl_sp_r8():
             offset = data if data < 0x80 else data - 0x100
-            self.HL = (self.SP + offset) & 0xFFFF
-            # TODO: set flags properly (Z=0, N=0, H/C depend on addition)
+            result = (self.PC + offset) & 0xFFFF
+            self.HL = result
+
+            # Flags Z = 0, N = 0
+            half_carry = ((self.SP & 0x0F) + (offset & 0x0F)) > 0x0F
+            carry = ((self.SP & 0xFF) + (offset & 0xFF)) > 0xFF
+            self.set_flags(z=0, n=0, h=half_carry, c=carry)
 
         dispatch = {
             ADDR_MODE.R_D8: ld_r_d8,
@@ -445,83 +453,125 @@ class CPU:
             )
 
     def _handle_inc(self, addr_mode, rt_8bit, rt_16bit, data):
-        """Handle INC instruction."""
+        """Handle INC instructions (8-bit registers, 16-bit registers, or (HL))."""
+        def inc_r8():
+            reg = rt_8bit
+            value = getattr(self, reg)
+            new_value = (value + 1) & 0xFF
+            setattr(self, reg, new_value)
+            # Flags: Z if zero, N=0, H if carry from bit 3
+            self.set_flags(z=(new_value == 0), n=0, h=((value & 0x0F) + 1) > 0x0F)
 
-        if addr_mode == ADDR_MODE.R:
-            if rt_16bit:  # 16-bit register
-                value = getattr(self, rt_16bit)
+        def inc_r16():
+            reg = rt_16bit
+            value = getattr(self, reg)
+            setattr(self, reg, (value + 1) & 0xFFFF)
+            # Flags unaffected for 16-bit INC
 
-                setattr(self, rt_16bit, (value + 1) & 0xFFFF)
+        def inc_hl_mem():
+            addr = self.HL
+            value = self.mmu.read_byte(addr)
+            new_value = (value + 1) & 0xFF
+            self.mmu.write_byte(addr, new_value)
+            self.set_flags(z=(new_value == 0), n=0, h=((value & 0x0F) + 1) > 0x0F)
 
-            elif rt_8bit:  # 8-bit register
-                reg = rt_8bit
+        dispatch = {
+            ADDR_MODE.R: (inc_r16 if rt_16bit else inc_r8),
+            ADDR_MODE.MR: inc_hl_mem,
+        }
 
-                value = getattr(self, reg)
-
-                new_value = (value + 1) & 0xFF
-
-                setattr(self, reg, new_value)
-
-                self.set_flags(z=new_value == 0, n=0, h=(value & 0x0F) == 0x0F)
+        handler = dispatch.get(addr_mode)
+        if handler:
+            handler()
+        else:
+            raise RuntimeError(f"Unhandled INC addressing mode: {addr_mode}")
 
     def _handle_dec(self, addr_mode, rt_8bit, rt_16bit, data):
-        """Handle DEC instruction."""
+        """Handle DEC instructions (8-bit registers, 16-bit registers, or (HL))."""
 
-        if addr_mode == ADDR_MODE.R:
-            if rt_16bit:  # 16-bit register
-                value = getattr(self, rt_16bit)
+        def dec_r8():
+            reg = rt_8bit
+            value = getattr(self, reg)
+            new_value = (value - 1) & 0xFF
+            setattr(self, reg, new_value)
+            # Flags: Z if zero, N=1, H if borrow from bit 4
+            self.set_flags(z=(new_value == 0), n=1, h=(value & 0x0F) == 0x00)
 
-                setattr(self, rt_16bit, (value - 1) & 0xFFFF)
+        def dec_r16():
+            reg = rt_16bit
+            value = getattr(self, reg)
+            setattr(self, reg, (value - 1) & 0xFFFF)
+            # Flags unaffected for 16-bit DEC
 
-            elif rt_8bit:  # 8-bit register
-                reg = rt_8bit
+        def dec_hl_mem():
+            addr = self.HL
+            value = self.mmu.read_byte(addr)
+            new_value = (value - 1) & 0xFF
+            self.mmu.write_byte(addr, new_value)
+            self.set_flags(z=(new_value == 0), n=1, h=(value & 0x0F) == 0x00)
 
-                value = getattr(self, reg)
+        dispatch = {
+            ADDR_MODE.R: (dec_r16 if rt_16bit else dec_r8),
+            ADDR_MODE.MR: dec_hl_mem,
+        }
 
-                new_value = (value - 1) & 0xFF
-
-                setattr(self, reg, new_value)
-
-                self.set_flags(z=new_value == 0, n=1, h=(value & 0x0F) == 0x00)
+        handler = dispatch.get(addr_mode)
+        if handler:
+            handler()
+        else:
+            raise RuntimeError(f"Unhandled DEC addressing mode: {addr_mode}")
 
     def _handle_add(self, addr_mode, rt_8bit, rt_16bit, data):
-        """Handle ADD instruction."""
+        """Handle ADD instructions (A with reg/imm/(HL), or HL with rr)."""
 
-        # Build handlers and only include HL_R if the enum actually defines it
+        def add_a_r8():
+            if rt_8bit != RT_8BIT.A:
+                raise RuntimeError("ADD must target A")
+            value = getattr(self, rt_16bit)
+            self._add_a(value)
 
-        add_handlers = {
-            ADDR_MODE.R_R: self._add_r_r,
-            ADDR_MODE.R_D8: self._add_r_d8,
-            ADDR_MODE.R_MR: self._add_r_mr,
+        def add_a_d8():
+            if rt_8bit not in (None, RT_8BIT.A):
+                raise RuntimeError("ADD d8 must target A")
+            self._add_a(data)
+
+        def add_a_mhl():
+            if rt_8bit not in (None, RT_8BIT.A):
+                raise RuntimeError("ADD (HL) must target A")
+            value = self.mmu.read_byte(self.HL)
+            self._add_a(value)
+
+        def add_hl_rr():
+            value = getattr(self, rt_16bit)
+            self._add_hl(value)
+
+        dispatch = {
+            ADDR_MODE.R_R: add_a_r8,    # ADD A, r
+            ADDR_MODE.R_D8: add_a_d8,   # ADD A, d8
+            ADDR_MODE.R_MR: add_a_mhl,  # ADD A, (HL)
         }
 
         hl_r_mode = getattr(ADDR_MODE, "HL_R", None)
-
         if hl_r_mode is not None:
-            add_handlers[hl_r_mode] = self._add_hl_r
+            dispatch[hl_r_mode] = add_hl_rr  # ADD HL, rr
 
-        handler = add_handlers.get(addr_mode)
-
+        handler = dispatch.get(addr_mode)
         if handler:
-            handler(rt_8bit, rt_16bit, data)
+            handler()
         else:
             raise RuntimeError(f"Unhandled ADD addressing mode: {addr_mode}")
-
+            
     def _handle_adc(self, addr_mode, rt_8bit, rt_16bit, data):
-        """Handle ADC (Add with Carry) instruction."""
-
-        adc_handlers = {
-            ADDR_MODE.R_R: self._adc_r_r,
-            ADDR_MODE.R_D8: self._adc_r_d8,
-            ADDR_MODE.R_MR: self._adc_r_mr,
-        }
-
-        handler = adc_handlers.get(addr_mode)
-
-        if handler:
-            handler(rt_8bit, rt_16bit, data)
-        else:
-            raise RuntimeError(f"Unhandled ADC addressing mode: {addr_mode}")
+    """ADC A, n"""
+    adc_handlers = {
+        ADDR_MODE.R_R: self._adc_r_r,
+        ADDR_MODE.R_D8: self._adc_r_d8,
+        ADDR_MODE.R_MR: self._adc_r_mr,
+    }
+    handler = adc_handlers.get(addr_mode)
+    if not handler:
+        raise RuntimeError(f"Unhandled ADC addressing mode: {addr_mode}")
+    handler(rt_8bit, rt_16bit, data)
 
     def _handle_sub(self, addr_mode, rt_8bit, rt_16bit, data):
         """Handle SUB (A - value) instruction."""
@@ -556,104 +606,183 @@ class CPU:
             raise RuntimeError(f"Unhandled SBC addressing mode: {addr_mode}")
 
     def _handle_jp(self, addr_mode, rt_8bit, rt_16bit, data):
-        """Handle JP (jump) instruction."""
+        """Handle JP (jump absolute) instructions."""
+
+        def jp_d16():
+            self.PC = data & 0xFFFF
+
+        def jp_rr():
+            self.PC = getattr(self, rt_16bit) & 0xFFFF
+
+        dispatch = {
+            ADDR_MODE.D16: jp_d16,  # JP a16
+            ADDR_MODE.R: jp_rr,     # JP rr (usually JP HL)
+        }
 
         if self._check_condition():
-            if addr_mode == ADDR_MODE.D16:
-                self.PC = data
-
-            elif addr_mode == ADDR_MODE.R:
-                self.PC = getattr(self, rt_16bit)
+            handler = dispatch.get(addr_mode)
+            if handler:
+                handler()
             else:
                 raise RuntimeError(f"Unhandled JP addressing mode: {addr_mode}")
 
     def _handle_jr(self, addr_mode, rt_8bit, rt_16bit, data):
-        """Handle JR (jump relative) instruction."""
+        """Handle JR (jump relative) instructions."""
+
+        def jr_r8():
+            self.PC = (self.PC + data) & 0xFFFF
+
+        dispatch = {
+            ADDR_MODE.R8: jr_r8,  # JR e8
+        }
 
         if self._check_condition():
-            if addr_mode == ADDR_MODE.R8:
-                self.PC = (self.PC + data) & 0xFFFF
+            handler = dispatch.get(addr_mode)
+            if handler:
+                handler()
             else:
                 raise RuntimeError(f"Unhandled JR addressing mode: {addr_mode}")
 
     def _handle_call(self, addr_mode, rt_8bit, rt_16bit, data):
-        """Handle CALL instruction."""
+        """Handle CALL instructions (call a 16-bit address)."""
+
+        def call_d16():
+            # Push current PC onto stack (low, then high)
+            self.SP = (self.SP - 1) & 0xFFFF
+            self.mmu.write_byte(self.SP, (self.PC >> 8) & 0xFF)
+            self.SP = (self.SP - 1) & 0xFFFF
+            self.mmu.write_byte(self.SP, self.PC & 0xFF)
+            # Jump to target address
+            self.PC = data & 0xFFFF
+
+        dispatch = {
+            ADDR_MODE.D16: call_d16,  # CALL a16
+        }
 
         if self._check_condition():
-            if addr_mode == ADDR_MODE.D16:
-                self.mmu.write_byte(self.SP - 1, (self.PC >> 8) & 0xFF)
-
-                self.mmu.write_byte(self.SP - 2, self.PC & 0xFF)
-
-                self.SP = (self.SP - 2) & 0xFFFF
-
-                self.PC = data
+            handler = dispatch.get(addr_mode)
+            if handler:
+                handler()
             else:
                 raise RuntimeError(f"Unhandled CALL addressing mode: {addr_mode}")
 
     def _handle_ret(self, addr_mode, rt_8bit, rt_16bit, data):
-        """Handle RET instruction."""
+        """Handle RET instructions (return from subroutine)."""
+
+        def ret_imp():
+            low = self.mmu.read_byte(self.SP)
+            self.SP = (self.SP + 1) & 0xFFFF
+            high = self.mmu.read_byte(self.SP)
+            self.SP = (self.SP + 1) & 0xFFFF
+            self.PC = ((high << 8) | low) & 0xFFFF
+
+        dispatch = {
+            ADDR_MODE.IMP: ret_imp,  # RET
+        }
 
         if self._check_condition():
-            self.PC = (
-                self.mmu.read_byte(self.SP) | (self.mmu.read_byte(self.SP + 1) << 8)
-            ) & 0xFFFF
-
-            self.SP = (self.SP + 2) & 0xFFFF
-        else:
-            raise RuntimeError(f"Unhandled RET addressing mode: {addr_mode}")
+            handler = dispatch.get(addr_mode)
+            if handler:
+                handler()
+            else:
+                raise RuntimeError(f"Unhandled RET addressing mode: {addr_mode}")
 
     def _handle_push(self, addr_mode, rt_8bit, rt_16bit, data):
-        """Handle PUSH instruction."""
+        """Handle PUSH instructions (push a 16-bit register pair onto the stack)."""
 
-        if addr_mode == ADDR_MODE.R:
-            reg_value = getattr(self, rt_16bit)
+        def push_rr():
+            reg_value = getattr(self, rt_16bit) & 0xFFFF
+            self.SP = (self.SP - 1) & 0xFFFF
+            self.mmu.write_byte(self.SP, (reg_value >> 8) & 0xFF)  # high
+            self.SP = (self.SP - 1) & 0xFFFF
+            self.mmu.write_byte(self.SP, reg_value & 0xFF)        # low
 
-            self.mmu.write_byte(self.SP - 1, (reg_value >> 8) & 0xFF)
+        dispatch = {
+            ADDR_MODE.R: push_rr,  # PUSH rr
+        }
 
-            self.mmu.write_byte(self.SP - 2, reg_value & 0xFF)
-
-            self.SP = (self.SP - 2) & 0xFFFF
+        handler = dispatch.get(addr_mode)
+        if handler:
+            handler()
         else:
             raise RuntimeError(f"Unhandled PUSH addressing mode: {addr_mode}")
 
     def _handle_pop(self, addr_mode, rt_8bit, rt_16bit, data):
-        """Handle POP instruction."""
+        """Handle POP instructions (pop into a 16-bit register pair)."""
 
-        if addr_mode == ADDR_MODE.R:
-            self.SP = (self.SP + 2) & 0xFFFF
+        def pop_rr():
+            low = self.mmu.read_byte(self.SP)
+            self.SP = (self.SP + 1) & 0xFFFF
+            high = self.mmu.read_byte(self.SP)
+            self.SP = (self.SP + 1) & 0xFFFF
+            reg_value = (high << 8) | low
+            setattr(self, rt_16bit, reg_value & 0xFFFF)
 
-            reg_value = (self.mmu.read_byte(self.SP - 1) << 8) | self.mmu.read_byte(
-                self.SP - 2
-            )
+        dispatch = {
+            ADDR_MODE.R: pop_rr,  # POP rr
+        }
 
-            setattr(self, rt_16bit, reg_value)
+        handler = dispatch.get(addr_mode)
+        if handler:
+            handler()
         else:
             raise RuntimeError(f"Unhandled POP addressing mode: {addr_mode}")
 
     def _handle_rst(self, addr_mode, rt_8bit, rt_16bit, data):
-        """Handle RST instruction."""
+        """Handle RST instructions (call fixed address)."""
+
+        def rst_vec():
+            # Push current PC
+            self.SP = (self.SP - 1) & 0xFFFF
+            self.mmu.write_byte(self.SP, (self.PC >> 8) & 0xFF)
+            self.SP = (self.SP - 1) & 0xFFFF
+            self.mmu.write_byte(self.SP, self.PC & 0xFF)
+            # Jump to vector
+            self.PC = data & 0xFFFF
+
+        dispatch = {
+            ADDR_MODE.IMP: rst_vec,  # RST n (always implied addressing)
+        }
 
         if self._check_condition():
-            self.mmu.write_byte(self.SP - 1, (self.PC >> 8) & 0xFF)
-
-            self.mmu.write_byte(self.SP - 2, self.PC & 0xFF)
-
-            self.SP = (self.SP - 2) & 0xFFFF
-
-            self.PC = data
-        else:
-            raise RuntimeError(f"Unhandled RST addressing mode: {addr_mode}")
+            handler = dispatch.get(addr_mode)
+            if handler:
+                handler()
+            else:
+                raise RuntimeError(f"Unhandled RST addressing mode: {addr_mode}")
 
     def _handle_halt(self, addr_mode, rt_8bit, rt_16bit, data):
-        """Handle HALT instruction."""
+        """Handle HALT instruction (stop CPU until interrupt)."""
 
-        # HALT is a special case that stops the CPU until an interrupt occurs
+        def halt_imp():
+            self.halted = True
+
+        dispatch = {
+            ADDR_MODE.IMP: halt_imp,
+        }
 
         if self._check_condition():
-            self.halted = True
+            handler = dispatch.get(addr_mode)
+            if handler:
+                handler()
+            else:
+                raise RuntimeError(f"Unhandled HALT addressing mode: {addr_mode}")
+
+    def _handle_stop(self, addr_mode, rt_8bit, rt_16bit, data):
+        """Handle STOP instruction (low power mode until button press)."""
+
+        def stop_imp():
+            self.stopped = True
+
+        dispatch = {
+            ADDR_MODE.IMP: stop_imp,
+        }
+
+        handler = dispatch.get(addr_mode)
+        if handler:
+            handler()
         else:
-            raise RuntimeError(f"Unhandled HALT addressing mode: {addr_mode}")
+            raise RuntimeError(f"Unhandled STOP addressing mode: {addr_mode}")
 
     def _handle_mr_mode(self):
         """Handle Memory Read (MR) addressing mode."""
@@ -756,6 +885,7 @@ class CPU:
     def get_flag(self, flag):
         """Get the value of a specific flag."""
         return (self.F >> {"Z": 7, "N": 6, "H": 5, "C": 4}[flag]) & 1
+
     # Arithmetic helper methods
     def _add_a(self, value, store_result=True):
         """Add value to A register with flag handling"""
