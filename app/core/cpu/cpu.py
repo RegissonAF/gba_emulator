@@ -189,42 +189,53 @@ class CPU:
         self.current_operands = [self._pc_read_u8() for _ in range(length)]
 
     def fetch_data(self, instruction=None, operands=None):
-        instruction = instruction or self.current_instruction
-
+        """Fetch data for the current instruction."""
+        instruction = self.current_instruction
         operands = operands or self.current_operands
 
         addr_mode = instruction.addr_mode
-
         rt_8bit = getattr(instruction, "rt_8bit", None)
-
         rt_16bit = getattr(instruction, "rt_16bit", None)
-
         imm8 = operands[0] if len(operands) >= 1 else None
-
         imm16 = (operands[0] | (operands[1] << 8)) if len(operands) >= 2 else None
-
         r8_signed = self._signed(operands[0]) if len(operands) >= 1 else None
 
         dispatch = {
+            # Immediate forms (single/double byte)
             ADDR_MODE.D8: lambda: imm8,
             ADDR_MODE.D16: lambda: imm16,
             ADDR_MODE.R8: lambda: r8_signed,
+            # Register-immediate / register-register variants
+            ADDR_MODE.R_D8: lambda: imm8,
+            ADDR_MODE.R_D16: lambda: imm16,
+            ADDR_MODE.R_R: lambda: getattr(self, rt_8bit)
+            if rt_8bit
+            else getattr(self, rt_16bit),
+            # Register (single register or 16-bit register)
             ADDR_MODE.R: lambda: getattr(self, rt_8bit)
             if rt_8bit
             else getattr(self, rt_16bit),
+            # Memory reads / (HL) / (BC)/(DE)
             ADDR_MODE.MR: lambda: self.mmu.read_byte(getattr(self, rt_16bit or "HL")),
             ADDR_MODE.MR_R: lambda: getattr(self, rt_16bit)
             if rt_16bit
             else self._raise_missing_register("rt_16bit"),
+            # Register & memory combos used by some handlers
             ADDR_MODE.R_MR: lambda: (
                 getattr(self, rt_16bit or "HL"),
                 getattr(self, rt_8bit),
             ),
+            ADDR_MODE.MR_D8: lambda: imm8,
+            # HL / special
             ADDR_MODE.H_R: lambda: self.HL,
             ADDR_MODE.SP_R8: lambda: r8_signed,
             ADDR_MODE.A16_R: lambda: imm16,
             ADDR_MODE.R_A16: lambda: imm16,
             ADDR_MODE.A16_SP: lambda: imm16,
+            # 8-bit a8 (high byte = 0xFF00 + a8)
+            ADDR_MODE.A8_R: lambda: imm8,
+            ADDR_MODE.R_A8: lambda: imm8,
+            # Implied
             ADDR_MODE.IMP: lambda: None,
         }
 
@@ -342,7 +353,6 @@ class CPU:
             self.execute_instruction()  # Executes with resolved data
 
     # Instruction Handlers (by IN_TYPE)
-
     def _handle_nop(self, *args):
         """No operation (NOP) instruction handler."""
 
@@ -454,6 +464,7 @@ class CPU:
 
     def _handle_inc(self, addr_mode, rt_8bit, rt_16bit, data):
         """Handle INC instructions (8-bit registers, 16-bit registers, or (HL))."""
+
         def inc_r8():
             reg = rt_8bit
             value = getattr(self, reg)
@@ -546,8 +557,8 @@ class CPU:
             self._add_hl(value)
 
         dispatch = {
-            ADDR_MODE.R_R: add_a_r8,    # ADD A, r
-            ADDR_MODE.R_D8: add_a_d8,   # ADD A, d8
+            ADDR_MODE.R_R: add_a_r8,  # ADD A, r
+            ADDR_MODE.R_D8: add_a_d8,  # ADD A, d8
             ADDR_MODE.R_MR: add_a_mhl,  # ADD A, (HL)
         }
 
@@ -560,18 +571,18 @@ class CPU:
             handler()
         else:
             raise RuntimeError(f"Unhandled ADD addressing mode: {addr_mode}")
-            
+
     def _handle_adc(self, addr_mode, rt_8bit, rt_16bit, data):
-    """ADC A, n"""
-    adc_handlers = {
-        ADDR_MODE.R_R: self._adc_r_r,
-        ADDR_MODE.R_D8: self._adc_r_d8,
-        ADDR_MODE.R_MR: self._adc_r_mr,
-    }
-    handler = adc_handlers.get(addr_mode)
-    if not handler:
-        raise RuntimeError(f"Unhandled ADC addressing mode: {addr_mode}")
-    handler(rt_8bit, rt_16bit, data)
+        """ADC A, n"""
+        adc_handlers = {
+            ADDR_MODE.R_R: self._adc_r_r,
+            ADDR_MODE.R_D8: self._adc_r_d8,
+            ADDR_MODE.R_MR: self._adc_r_mr,
+        }
+        handler = adc_handlers.get(addr_mode)
+        if not handler:
+            raise RuntimeError(f"Unhandled ADC addressing mode: {addr_mode}")
+        handler(rt_8bit, rt_16bit, data)
 
     def _handle_sub(self, addr_mode, rt_8bit, rt_16bit, data):
         """Handle SUB (A - value) instruction."""
@@ -616,7 +627,7 @@ class CPU:
 
         dispatch = {
             ADDR_MODE.D16: jp_d16,  # JP a16
-            ADDR_MODE.R: jp_rr,     # JP rr (usually JP HL)
+            ADDR_MODE.R: jp_rr,  # JP rr (usually JP HL)
         }
 
         if self._check_condition():
@@ -627,10 +638,20 @@ class CPU:
                 raise RuntimeError(f"Unhandled JP addressing mode: {addr_mode}")
 
     def _handle_jr(self, addr_mode, rt_8bit, rt_16bit, data):
-        """Handle JR (jump relative) instructions."""
+        """Handle JR (jump relative) instructions.
+
+        JR instructions add a signed 8-bit offset to the current PC (which already points
+        to the next instruction after operands were read). data is the signed offset.
+        Conditional JR variants use `self.current_instruction.conditional` and are
+        checked via `_check_condition()`.
+        """
 
         def jr_r8():
-            self.PC = (self.PC + data) & 0xFFFF
+            # data should be a signed 8-bit integer (e.g. -128..+127)
+            offset = data if data is not None else 0
+            # PC already points to the next instruction (operands consumed),
+            # so simply add the signed offset.
+            self.PC = (self.PC + offset) & 0xFFFF
 
         dispatch = {
             ADDR_MODE.R8: jr_r8,  # JR e8
@@ -695,7 +716,7 @@ class CPU:
             self.SP = (self.SP - 1) & 0xFFFF
             self.mmu.write_byte(self.SP, (reg_value >> 8) & 0xFF)  # high
             self.SP = (self.SP - 1) & 0xFFFF
-            self.mmu.write_byte(self.SP, reg_value & 0xFF)        # low
+            self.mmu.write_byte(self.SP, reg_value & 0xFF)  # low
 
         dispatch = {
             ADDR_MODE.R: push_rr,  # PUSH rr
@@ -856,11 +877,11 @@ class CPU:
 
         a = self.A
 
-        result = a - data
+        result = a - self.fetch_data()
 
         borrow = result < 0
 
-        half_borrow = (a & 0x0F) < (data & 0x0F)
+        half_borrow = (a & 0x0F) < (self.fetch_data() & 0x0F)
 
         self.set_flags(z=(result & 0xFF) == 0, n=1, h=half_borrow, c=borrow)
 

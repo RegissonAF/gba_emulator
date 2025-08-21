@@ -89,7 +89,7 @@ def run(rom_path: Path | None = None, max_steps: int = 200_000):
                 return 1
 
             print(
-                f"PC = {c.PC:04X}, opcode = {c.current_instruction.in_type}, data = {c.fetch_data():04X}"
+                f"PC = {c.PC:04X}, opcode = {c.current_instruction.in_type},"
             )
 
             c.execute_instruction()
