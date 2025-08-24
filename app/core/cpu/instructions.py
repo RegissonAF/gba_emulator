@@ -173,6 +173,7 @@ INSTRUCTIONS_DICT = {
     0x89: Instruction(IN_TYPE.ADC, ADDR_MODE.R_R, RT_8BIT.A, RT_8BIT.C),
     # SBC A, C
     0x99: Instruction(IN_TYPE.SBC, ADDR_MODE.R_R, RT_8BIT.A, RT_8BIT.C),
+    0xAF: Instruction(IN_TYPE.XOR, ADDR_MODE.R_R, RT_8BIT.A, RT_8BIT.A),
     0xC3: Instruction(
         IN_TYPE.JP,
         ADDR_MODE.D16,
