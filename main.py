@@ -56,43 +56,37 @@ def run(rom_path: Path | None = None, max_steps: int = 200_000):
 
     for step in range(max_steps):
         try:
+            old_pc = c.PC
+            try:
+                opcode = mmu.memory[c.PC]
+            except Exception:
+                opcode = mmu.read_byte(c.PC)
+
+            print(f"\n[STEP {step}] PC=0x{old_pc:04X} Opcode=0x{opcode:02X}")
+
+            # Fetch and decode
             c.fetch_instruction()
 
-            # If CPU resolved as an illegal instruction mapping, report and stop
-
-            if c.current_instruction is instructions.ILLEGAL_INSTRUCTION:
-                try:
-                    b0 = mmu.memory[c.PC]
-
-                except Exception:
-                    b0 = mmu.read_byte(c.PC)
-
-                if b0 == 0xCB:
-                    try:
-                        b1 = mmu.memory[c.PC + 1]
-
-                    except Exception:
-                        b1 = mmu.read_byte(c.PC + 1)
-
-                    full_opcode = (b0 << 8) | b1
-
-                    opcode_repr = f"0x{b1:02X}"
-                else:
-                    full_opcode = b0
-
-                    opcode_repr = f"0x{b0:02X}"
-
-                print(
-                    f"Missing implementation for opcode {opcode_repr} (full=0x{full_opcode:04X} at PC=0x{c.PC:04X})"
-                )
-
-                return 1
-
+            # Show decoded instruction info
             print(
-                f"PC = {c.PC:04X}, opcode = {c.current_instruction.in_type},"
+                f"Decoded Instruction: {c.current_instruction.in_type} "
+                f"at PC=0x{old_pc:04X}"
             )
 
+            # Show CPU registers before execution
+            print(
+                f"Registers: A={c.A:02X} F={c.F:02X} "
+                f"B={c.B:02X} C={c.C:02X} "
+                f"D={c.D:02X} E={c.E:02X} "
+                f"H={c.H:02X} L={c.L:02X} "
+                f"SP=0x{c.SP:04X}"
+            )
+
+            # Execute
             c.execute_instruction()
+
+            # After execution log PC increment
+            print(f"After Execution: PC=0x{c.PC:04X}")
 
         except Exception:
             print(f"Execution halted due to exception at PC=0x{c.PC:04X}")
