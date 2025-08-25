@@ -5,6 +5,7 @@ from app.core.cpu.instructions import (
     RT_16BIT,
     RT_8BIT,
     INSTRUCTIONS_DICT,
+    CB_INSTRUCTIONS_DICT,
     operand_length_map,
 )
 
@@ -170,17 +171,14 @@ class CPU:
         if opcode == 0xCB:
             self.is_extended = True
 
-            opcode = self._pc_read_u8()
-
-            full_opcode = 0xCB00 | opcode
+            cb_opcode = self._pc_read_u8()
+            self.current_instruction = CB_INSTRUCTIONS_DICT.get(
+                cb_opcode, ILLEGAL_INSTRUCTION
+            )
         else:
-            full_opcode = opcode
-
-        # Get instruction and operands
-
-        self.current_instruction = INSTRUCTIONS_DICT.get(
-            full_opcode, ILLEGAL_INSTRUCTION
-        )
+            self.current_instruction = INSTRUCTIONS_DICT.get(
+                opcode, ILLEGAL_INSTRUCTION
+            )
 
         # Determine operand length and read operands (one pass)
 
@@ -199,6 +197,7 @@ class CPU:
         imm8 = operands[0] if len(operands) >= 1 else None
         imm16 = (operands[0] | (operands[1] << 8)) if len(operands) >= 2 else None
         r8_signed = self._signed(operands[0]) if len(operands) >= 1 else None
+        parameter_byte = getattr(instruction, "parameter_byte", None)
 
         dispatch = {
             # Immediate forms (single/double byte)
@@ -236,7 +235,7 @@ class CPU:
             ADDR_MODE.A8_R: lambda: imm8,
             ADDR_MODE.R_A8: lambda: imm8,
             # Implied
-            ADDR_MODE.IMP: lambda: None,
+            ADDR_MODE.IMP: lambda: parameter_byte,
         }
 
         return dispatch.get(addr_mode, lambda: None)()
@@ -251,6 +250,8 @@ class CPU:
         rt_8bit = self.current_instruction.rt_8bit
 
         rt_16bit = self.current_instruction.rt_16bit
+        rt_8bit_dest = self.current_instruction.rt_8bit_dest
+        rt_16bit_dest = self.current_instruction.rt_16bit_dest
 
         data = self.fetch_data()
 
@@ -277,6 +278,11 @@ class CPU:
             IN_TYPE.POP: self._handle_pop,
             IN_TYPE.RST: self._handle_rst,
             IN_TYPE.HALT: self._handle_halt,
+            IN_TYPE.RRCA: self._handle_rrca,
+            IN_TYPE.DI: self._handle_di,
+            # CB-Prefixed
+            IN_TYPE.RLC: self._handle_rlc,
+            IN_TYPE.RRC: self._handle_rrc,
         }
 
         handler = instruction_handlers.get(in_type)
@@ -358,15 +364,7 @@ class CPU:
 
         pass
 
-    def _handle_ld(
-        self,
-        addr_mode,
-        rt_8bit=None,
-        rt_16bit=None,
-        data=None,
-        rt_8bit_dest=None,
-        rt_16bit_dest=None,
-    ):
+    def _handle_ld(self, addr_mode, rt_8bit=None, rt_16bit=None, data=None):
         """Handle Load (LD) instruction."""
 
         def ld_r_d8():
@@ -376,7 +374,8 @@ class CPU:
             setattr(self, rt_16bit, data & 0xFFFF)
 
         def ld_r1_r2():
-            setattr(self, rt_8bit_dest, getattr(self, rt_16bit_dest))
+            value = getattr(self, rt_8bit)
+            setattr(self, rt_8bit, data)
 
         def ld_mr_r():
             addr = getattr(self, rt_16bit)
@@ -398,12 +397,12 @@ class CPU:
             value = self.mmu.read_byte(addr)
             setattr(self, rt_8bit, value)
 
-        def ld_c_r():
+        def ld_h_r():
             addr = 0xFF00 + self.C
             value = getattr(self, rt_8bit)
             self.mmu.write_byte(addr, value)
 
-        def ld_r_c():
+        def ld_r_h():
             addr = 0xFF00 + self.C
             value = self.mmu.read_byte(addr)
             setattr(self, rt_8bit, value)
@@ -445,8 +444,8 @@ class CPU:
             ADDR_MODE.R_MR: ld_r_mr,
             ADDR_MODE.A16_R: ld_a16_r,
             ADDR_MODE.R_A16: ld_r_a16,
-            ADDR_MODE.C_R: ld_c_r,
-            ADDR_MODE.R_C: ld_r_c,
+            ADDR_MODE.H_R: ld_h_r,
+            ADDR_MODE.R_H: ld_r_h,
             ADDR_MODE.A8_R: ld_a8_r,
             ADDR_MODE.R_A8: ld_r_a8,
             ADDR_MODE.SP_HL: ld_sp_hl,
@@ -884,6 +883,63 @@ class CPU:
         half_borrow = (a & 0x0F) < (self.fetch_data() & 0x0F)
 
         self.set_flags(z=(result & 0xFF) == 0, n=1, h=half_borrow, c=borrow)
+
+    def _handle_rrca(self, addr_mode, rt_8bit, rt_16bit, data):
+        """Handle RRCA (rotate A right through carry) instruction."""
+
+        a = self.A
+
+        carry = a & 0x01
+
+        result = (a >> 1) | (carry << 7)
+
+        self.A = result & 0xFF
+
+        self.set_flags(z=0, n=0, h=0, c=carry)
+
+    def _handle_rlc(self, addr_mode, rt_8bit, rt_16bit, data):
+        """Handle RLC (rotate A left through carry) instruction."""
+
+        def rlc_byte(x):
+            c = (x >> 7) & 1
+            y = ((x << 1) | c) & 0xFF
+            return y, c
+
+        if addr_mode == ADDR_MODE.R:
+            val = getattr(self, rt_8bit)
+            res, c = rlc_byte(val)
+            setattr(self, rt_8bit, res)
+            self.set_flags(z=(res == 0), n=0, h=0, c=c)
+
+        else:
+            raise RuntimeError(f"Unhandled RLC addressing mode: {addr_mode}")
+
+    def _handle_rrc(self, addr_mode, rt_8bit, rt_16bit, data):
+        """Handle RRC (rotate A right through carry) instruction."""
+
+        def rrc_byte(x):
+            c = x & 1
+            y = (c << 7) | (x >> 1) & 0xFF
+            return y, c
+
+        if addr_mode == ADDR_MODE.R:
+            val = getattr(self, rt_8bit)
+            res, c = rrc_byte(val)
+            setattr(self, rt_8bit, res)
+            self.set_flags(z=(res == 0), n=0, h=0, c=c)
+
+        elif addr_mode == ADDR_MODE.MR:
+            addr = getattr(self, rt_16bit)
+            val = self.mmu.read_byte(addr)
+            res, c = rrc_byte(val)
+            self.mmu.write_byte(addr, res)
+            self.set_flags(z=(res == 0), n=0, h=0, c=c)
+
+        else:
+            raise RuntimeError(f"Unhandled RRC addressing mode: {addr_mode}")
+
+    def _handle_di(self, addr_mode, rt_8bit, rt_16bit, data):
+        pass  # TODO implement interrupts
 
     def set_flags(self, z=None, n=None, h=None, c=None):
         """Set the CPU flags."""

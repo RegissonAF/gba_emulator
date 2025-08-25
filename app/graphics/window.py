@@ -1,7 +1,7 @@
-import pygame
 from app.core.rom.header import read_header
 from app.graphics.config import SCALE, WINDOW_HEIGHT, WINDOW_WIDTH
 from app.graphics.renders import render_nintendo_logo
+import pygame
 
 
 def window():
