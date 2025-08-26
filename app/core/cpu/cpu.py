@@ -250,9 +250,6 @@ class CPU:
         rt_8bit = self.current_instruction.rt_8bit
 
         rt_16bit = self.current_instruction.rt_16bit
-        rt_8bit_dest = self.current_instruction.rt_8bit_dest
-        rt_16bit_dest = self.current_instruction.rt_16bit_dest
-
         data = self.fetch_data()
 
         # Dispatch tables
@@ -260,6 +257,7 @@ class CPU:
         instruction_handlers = {
             IN_TYPE.NOP: self._handle_nop,
             IN_TYPE.LD: self._handle_ld,
+            IN_TYPE.LDH: self._handle_ldh,
             IN_TYPE.INC: self._handle_inc,
             IN_TYPE.DEC: self._handle_dec,
             IN_TYPE.ADD: self._handle_add,
@@ -281,8 +279,17 @@ class CPU:
             IN_TYPE.RRCA: self._handle_rrca,
             IN_TYPE.DI: self._handle_di,
             # CB-Prefixed
+            IN_TYPE.RL: self._handle_rl,
+            IN_TYPE.RR: self._handle_rr,
+            IN_TYPE.SLA: self._handle_sla,
+            IN_TYPE.SRA: self._handle_sra,
+            IN_TYPE.SRL: self._handle_srl,
+            IN_TYPE.SWAP: self._handle_swap,
+            IN_TYPE.RES: self._handle_res,
+            IN_TYPE.SET: self._handle_set,
             IN_TYPE.RLC: self._handle_rlc,
             IN_TYPE.RRC: self._handle_rrc,
+            IN_TYPE.BIT: self._handle_bit,
         }
 
         handler = instruction_handlers.get(in_type)
@@ -460,6 +467,36 @@ class CPU:
             raise NotImplementedError(
                 f"LD handler: Unhandled addr_mode {addr_mode}, args: {rt_8bit}, {rt_16bit}, {data}"
             )
+
+    def _handle_ldh(self, addr_mode, rt_8bit, rt_16bit, data):
+        """Handle LDH instructions (8-bit registers, 16-bit registers, or (HL))."""
+
+        def ldh_r8():
+            if rt_8bit != RT_8BIT.A:
+                raise RuntimeError("LDH must target A")
+            value = getattr(self, rt_8bit)
+            self.mmu.write_byte(0xFF00 + self.C, value)
+
+        def ldh_r16():
+            if rt_16bit != RT_16BIT.HL:
+                raise RuntimeError("LDH must target HL")
+            value = getattr(self, rt_16bit)
+            self.mmu.write_byte(0xFF00 + self.C, value & 0xFF)
+
+        def ldh_hl():
+            value = self.mmu.read_byte(self.HL)
+            self.mmu.write_byte(0xFF00 + self.C, value)
+
+        dispatch = {
+            ADDR_MODE.R: (ldh_r16 if rt_16bit else ldh_r8),
+            ADDR_MODE.MR: ldh_hl,
+        }
+
+        handler = dispatch.get(addr_mode)
+        if handler:
+            handler()
+        else:
+            raise RuntimeError(f"Unhandled LDH addressing mode: {addr_mode}")
 
     def _handle_inc(self, addr_mode, rt_8bit, rt_16bit, data):
         """Handle INC instructions (8-bit registers, 16-bit registers, or (HL))."""
@@ -884,18 +921,204 @@ class CPU:
 
         self.set_flags(z=(result & 0xFF) == 0, n=1, h=half_borrow, c=borrow)
 
-    def _handle_rrca(self, addr_mode, rt_8bit, rt_16bit, data):
-        """Handle RRCA (rotate A right through carry) instruction."""
+    def _handle_rl(self, addr_mode, rt_8bit, rt_16bit, data):
+        """Handle RL (rotate A left through carry) instruction."""
 
-        a = self.A
+        def rl_byte(x):
+            carry_in = self.get_flag("C")
+            carry_out = (x >> 7) & 1
+            y = ((x << 1) | carry_in) & 0xFF
+            return y, carry_out
 
-        carry = a & 0x01
+        if addr_mode == ADDR_MODE.R:
+            val = getattr(self, rt_8bit)
+            res, c = rl_byte(val)
+            setattr(self, rt_8bit, res)
+        elif addr_mode == ADDR_MODE.MR:
+            addr = getattr(self, rt_16bit)
+            val = self.mmu.read_byte(addr)
+            res, c = rl_byte(val)
+            self.mmu.write_byte(addr, res)
+        else:
+            raise RuntimeError(f"Unhandled RL mode {addr_mode}")
 
-        result = (a >> 1) | (carry << 7)
+        self.set_flags(z=(res == 0), n=0, h=0, c=c)
 
-        self.A = result & 0xFF
+    def _handle_rr(self, addr_mode, rt_8bit, rt_16bit, data):
+        """Handle RR (rotate A right through carry) instruction."""
 
-        self.set_flags(z=0, n=0, h=0, c=carry)
+        def rr_byte(x):
+            carry_in = self.get_flag("C") << 7
+            carry_out = x & 1
+            y = ((x >> 1) | carry_in) & 0xFF
+            return y, carry_out
+
+        if addr_mode == ADDR_MODE.R:
+            val = getattr(self, rt_8bit)
+            res, c = rr_byte(val)
+            setattr(self, rt_8bit, res)
+        elif addr_mode == ADDR_MODE.MR:
+            addr = getattr(self, rt_16bit)
+            val = self.mmu.read_byte(addr)
+            res, c = rr_byte(val)
+            self.mmu.write_byte(addr, res)
+        else:
+            raise RuntimeError(f"Unhandled RR mode {addr_mode}")
+
+        self.set_flags(z=(res == 0), n=0, h=0, c=c)
+
+    def _handle_sla(self, addr_mode, rt_8bit, rt_16bit, data):
+        """Handle SLA (shift left arithmetic) instruction."""
+
+        def sla_byte(x):
+            c = (x >> 7) & 1
+            y = (x << 1) & 0xFF
+            return y, c
+
+        if addr_mode == ADDR_MODE.R:
+            val = getattr(self, rt_8bit)
+            res, c = sla_byte(val)
+            setattr(self, rt_8bit, res)
+            self.set_flags(z=(res == 0), n=0, h=0, c=c)
+
+        elif addr_mode == ADDR_MODE.MR:
+            addr = getattr(self, rt_16bit)
+            val = self.mmu.read_byte(addr)
+            res, c = sla_byte(val)
+            self.mmu.write_byte(addr, res)
+            self.set_flags(z=(res == 0), n=0, h=0, c=c)
+
+        else:
+            raise RuntimeError(f"Unhandled SLA addressing mode: {addr_mode}")
+
+    def _handle_sra(self, addr_mode, rt_8bit, rt_16bit, data):
+        """Handle SRA (shift right arithmetic) instruction."""
+
+        def sra_byte(x):
+            c = x & 1
+            y = (x >> 1) | (x & 0x80)
+            return y, c
+
+        if addr_mode == ADDR_MODE.R:
+            val = getattr(self, rt_8bit)
+            res, c = sra_byte(val)
+            setattr(self, rt_8bit, res)
+            self.set_flags(z=(res == 0), n=0, h=0, c=c)
+
+        elif addr_mode == ADDR_MODE.MR:
+            addr = getattr(self, rt_16bit)
+            val = self.mmu.read_byte(addr)
+            res, c = sra_byte(val)
+            self.mmu.write_byte(addr, res)
+            self.set_flags(z=(res == 0), n=0, h=0, c=c)
+
+        else:
+            raise RuntimeError(f"Unhandled SRA addressing mode: {addr_mode}")
+
+    def _handle_srl(self, addr_mode, rt_8bit, rt_16bit, data):
+        """Handle SRL (shift right logical) instruction."""
+
+        def srl_byte(x):
+            c = x & 1
+            y = (x >> 1) & 0xFF
+            return y, c
+
+        if addr_mode == ADDR_MODE.R:
+            val = getattr(self, rt_8bit)
+            res, c = srl_byte(val)
+            setattr(self, rt_8bit, res)
+            self.set_flags(z=(res == 0), n=0, h=0, c=c)
+
+        elif addr_mode == ADDR_MODE.MR:
+            addr = getattr(self, rt_16bit)
+            val = self.mmu.read_byte(addr)
+            res, c = srl_byte(val)
+            self.mmu.write_byte(addr, res)
+            self.set_flags(z=(res == 0), n=0, h=0, c=c)
+
+        else:
+            raise RuntimeError(f"Unhandled SRL addressing mode: {addr_mode}")
+
+    def _handle_swap(self, addr_mode, rt_8bit, rt_16bit, data):
+        """Handle SWAP (swap nibbles) instruction."""
+
+        def swap_byte(x):
+            y = ((x & 0xF0) >> 4) | ((x & 0x0F) << 4)
+            return y, 0
+
+        if addr_mode == ADDR_MODE.R:
+            val = getattr(self, rt_8bit)
+            res, c = swap_byte(val)
+            setattr(self, rt_8bit, res)
+            self.set_flags(z=(res == 0), n=0, h=0, c=c)
+
+        elif addr_mode == ADDR_MODE.MR:
+            addr = getattr(self, rt_16bit)
+            val = self.mmu.read_byte(addr)
+            res, c = swap_byte(val)
+            self.mmu.write_byte(addr, res)
+            self.set_flags(z=(res == 0), n=0, h=0, c=c)
+
+        else:
+            raise RuntimeError(f"Unhandled SWAP addressing mode: {addr_mode}")
+
+    def _handle_res(self, addr_mode, rt_8bit, rt_16bit, data):
+        """Handle RES (reset bit in register or (HL)) instruction."""
+        # The RES opcodes in CB form encode the bit to reset in the opcode;
+        # in your instruction table you should set parameter_byte = bit_index.
+        bit_index = getattr(self.current_instruction, "parameter_byte", None)
+
+        # If parameter_byte is not set, we can attempt to derive it from `data`
+        # or default to 0. But best practice: CB_INSTRUCTIONS_DICT entries
+        # should carry parameter_byte for RES ops.
+        if bit_index is None:
+            # fallback: if data provided and it's an int, use that low 3 bits
+            bit_index = data if isinstance(data, int) else 0
+
+        mask = ~(1 << bit_index) & 0xFF
+
+        if addr_mode == ADDR_MODE.R:
+            val = getattr(self, rt_8bit) & 0xFF
+            res = val & mask
+            setattr(self, rt_8bit, res)
+
+        elif addr_mode == ADDR_MODE.MR:
+            addr = getattr(self, rt_16bit)
+            val = self.mmu.read_byte(addr)
+            res = val & mask
+            self.mmu.write_byte(addr, res)
+
+        else:
+            raise RuntimeError(f"Unhandled RES addressing mode: {addr_mode}")
+
+    def _handle_set(self, addr_mode, rt_8bit, rt_16bit, data):
+        """Handle SET (set bit in register or (HL)) instruction."""
+        # The SET opcodes in CB form encode the bit to set in the opcode;
+        # in your instruction table you should set parameter_byte = bit_index.
+        bit_index = getattr(self.current_instruction, "parameter_byte", None)
+
+        # If parameter_byte is not set, we can attempt to derive it from `data`
+        # or default to 0. But best practice: CB_INSTRUCTIONS_DICT entries
+        # should carry parameter_byte for SET ops.
+        if bit_index is None:
+            # fallback: if data provided and it's an int, use that low 3 bits
+            bit_index = data if isinstance(data, int) else 0
+
+        mask = 1 << bit_index
+
+        if addr_mode == ADDR_MODE.R:
+            val = getattr(self, rt_8bit) & 0xFF
+            res = val | mask
+            setattr(self, rt_8bit, res)
+
+        elif addr_mode == ADDR_MODE.MR:
+            addr = getattr(self, rt_16bit)
+            val = self.mmu.read_byte(addr)
+            res = val | mask
+            self.mmu.write_byte(addr, res)
+
+        else:
+            raise RuntimeError(f"Unhandled SET addressing mode: {addr_mode}")
 
     def _handle_rlc(self, addr_mode, rt_8bit, rt_16bit, data):
         """Handle RLC (rotate A left through carry) instruction."""
@@ -909,6 +1132,15 @@ class CPU:
             val = getattr(self, rt_8bit)
             res, c = rlc_byte(val)
             setattr(self, rt_8bit, res)
+            # For CB-prefixed RLC: set Z if result == 0.
+            self.set_flags(z=(res == 0), n=0, h=0, c=c)
+
+        elif addr_mode == ADDR_MODE.MR:
+            # Memory variant (typically (HL))
+            addr = getattr(self, rt_16bit)
+            val = self.mmu.read_byte(addr)
+            res, c = rlc_byte(val)
+            self.mmu.write_byte(addr, res)
             self.set_flags(z=(res == 0), n=0, h=0, c=c)
 
         else:
@@ -938,8 +1170,57 @@ class CPU:
         else:
             raise RuntimeError(f"Unhandled RRC addressing mode: {addr_mode}")
 
+    def _handle_rrca(self, addr_mode, rt_8bit, rt_16bit, data):
+        """Handle RRCA (rotate A right) instruction."""
+
+        def rrca_byte(x):
+            c = x & 1
+            y = (c << 7) | (x >> 1) & 0xFF
+            return y, c
+
+        if addr_mode == ADDR_MODE.IMP:
+            val = self.A
+            res, c = rrca_byte(val)
+            self.A = res
+            # For non-CB RRCA: Z=0, N=0, H=0, C=old bit 0
+            self.set_flags(z=0, n=0, h=0, c=c)
+
+        else:
+            raise RuntimeError(f"Unhandled RRCA addressing mode: {addr_mode}")
+
     def _handle_di(self, addr_mode, rt_8bit, rt_16bit, data):
         pass  # TODO implement interrupts
+
+    def _handle_bit(self, addr_mode, rt_8bit, rt_16bit, data):
+        """Handle BIT instructions (test bit in register or (HL))."""
+        # The BIT opcodes in CB form encode the tested bit in the opcode;
+        # in your instruction table you should set parameter_byte = bit_index.
+        bit_index = getattr(self.current_instruction, "parameter_byte", None)
+
+        # If parameter_byte is not set, we can attempt to derive it from `data`
+        # or default to 0. But best practice: CB_INSTRUCTIONS_DICT entries
+        # should carry parameter_byte for BIT ops.
+        if bit_index is None:
+            # fallback: if data provided and it's an int, use that low 3 bits
+            bit_index = data if isinstance(data, int) else 0
+
+        mask = 1 << bit_index
+
+        if addr_mode == ADDR_MODE.R:
+            val = getattr(self, rt_8bit) & 0xFF
+            bit_set = (val & mask) != 0
+
+        elif addr_mode == ADDR_MODE.MR:
+            addr = getattr(self, rt_16bit)
+            val = self.mmu.read_byte(addr)
+            bit_set = (val & mask) != 0
+
+        else:
+            raise RuntimeError(f"Unhandled BIT addressing mode: {addr_mode}")
+
+        # For BIT: Z = (bit == 0), N = 0, H = 1, C unaffected
+        self.set_flags(z=(0 if bit_set else 1), n=0, h=1)
+        # leave C unchanged (do not call set_flags for C)
 
     def set_flags(self, z=None, n=None, h=None, c=None):
         """Set the CPU flags."""

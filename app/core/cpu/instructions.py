@@ -23,6 +23,14 @@ class IN_TYPE:
     RLA = "IN_RLA"
     RRCA = "IN_RRCA"
     RRA = "IN_RRA"
+    RL = "IN_RL"
+    RR = "IN_RR"
+    SLA = "IN_SLA"
+    SRA = "IN_SRA"
+    SRL = "IN_SRL"
+    SWAP = "IN_SWAP"
+    RES = "IN_RES"
+    SET = "IN_SET"
 
     # Control Flow Instructions
     JP = "IN_JP"
@@ -262,13 +270,33 @@ CB_INSTRUCTIONS_DICT = {
     0x07: Instruction(IN_TYPE.RLC, ADDR_MODE.R, RT_8BIT.A),
     0x08: Instruction(IN_TYPE.RRC, ADDR_MODE.R, RT_8BIT.B),
     0x09: Instruction(IN_TYPE.RRC, ADDR_MODE.R, RT_8BIT.C),
+    0x10: Instruction(IN_TYPE.RL, ADDR_MODE.R, RT_8BIT.B),
+    0x11: Instruction(IN_TYPE.RL, ADDR_MODE.R, RT_8BIT.C),
+    0x12: Instruction(IN_TYPE.RL, ADDR_MODE.R, RT_8BIT.D),
+    0x13: Instruction(IN_TYPE.RL, ADDR_MODE.R, RT_8BIT.E),
+    0x14: Instruction(IN_TYPE.RL, ADDR_MODE.R, RT_8BIT.H),
+    0x15: Instruction(IN_TYPE.RL, ADDR_MODE.R, RT_8BIT.L),
+    0x16: Instruction(IN_TYPE.RL, ADDR_MODE.MR, RT_16BIT.HL),
+    0x17: Instruction(IN_TYPE.RL, ADDR_MODE.R, RT_8BIT.A),
     0x0A: Instruction(IN_TYPE.RRC, ADDR_MODE.R, RT_8BIT.D),
     0x0B: Instruction(IN_TYPE.RRC, ADDR_MODE.R, RT_8BIT.E),
     0x0C: Instruction(IN_TYPE.RRC, ADDR_MODE.R, RT_8BIT.H),
     0x0D: Instruction(IN_TYPE.RRC, ADDR_MODE.R, RT_8BIT.L),
     0x0E: Instruction(IN_TYPE.RRC, ADDR_MODE.MR, RT_16BIT.HL),
     0x0F: Instruction(IN_TYPE.RRC, ADDR_MODE.R, RT_8BIT.A),
+    0x40: Instruction(IN_TYPE.BIT, ADDR_MODE.R, RT_8BIT.B, parameter_byte=0),
+    0x41: Instruction(IN_TYPE.BIT, ADDR_MODE.R, RT_8BIT.C, parameter_byte=0),
+    0x42: Instruction(IN_TYPE.BIT, ADDR_MODE.R, RT_8BIT.D, parameter_byte=0),
+    0x43: Instruction(IN_TYPE.BIT, ADDR_MODE.R, RT_8BIT.E, parameter_byte=0),
+    0x44: Instruction(IN_TYPE.BIT, ADDR_MODE.R, RT_8BIT.H, parameter_byte=0),
+    0x45: Instruction(IN_TYPE.BIT, ADDR_MODE.R, RT_8BIT.L, parameter_byte=0),
+    0x46: Instruction(IN_TYPE.BIT, ADDR_MODE.MR, RT_16BIT.HL, parameter_byte=0),
     0x47: Instruction(IN_TYPE.BIT, ADDR_MODE.R, RT_8BIT.A),
+    0x4D: Instruction(IN_TYPE.BIT, ADDR_MODE.R, RT_8BIT.L, parameter_byte=5),
+    0x7C: Instruction(IN_TYPE.BIT, ADDR_MODE.R, RT_8BIT.H, parameter_byte=7),
+    0x7F: Instruction(IN_TYPE.BIT, ADDR_MODE.R, RT_8BIT.A, parameter_byte=7),
+    0xCB: Instruction(IN_TYPE.BIT, ADDR_MODE.R, RT_8BIT.C, parameter_byte=0),
+    0xE0: Instruction(IN_TYPE.LD, ADDR_MODE.A8_R, RT_8BIT.A),
 }
 
 __all__ = [
