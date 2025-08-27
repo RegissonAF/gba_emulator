@@ -191,6 +191,7 @@ INSTRUCTIONS_DICT = {
     0x1B: Instruction(IN_TYPE.DEC, ADDR_MODE.R, RT_16BIT.DE),
     0x1C: Instruction(IN_TYPE.INC, ADDR_MODE.R, RT_8BIT.E),
     0x1D: Instruction(IN_TYPE.DEC, ADDR_MODE.R, RT_8BIT.E),
+    0x20: Instruction(IN_TYPE.JR, ADDR_MODE.R8, conditional=CONDITIONAL_MODE.NZ),
     0x23: Instruction(IN_TYPE.INC, ADDR_MODE.R, RT_16BIT.HL),
     0x24: Instruction(IN_TYPE.INC, ADDR_MODE.R, RT_8BIT.H),
     0x25: Instruction(IN_TYPE.INC, ADDR_MODE.R, RT_8BIT.H),
@@ -295,7 +296,7 @@ CB_INSTRUCTIONS_DICT = {
     0x4D: Instruction(IN_TYPE.BIT, ADDR_MODE.R, RT_8BIT.L, parameter_byte=5),
     0x7C: Instruction(IN_TYPE.BIT, ADDR_MODE.R, RT_8BIT.H, parameter_byte=7),
     0x7F: Instruction(IN_TYPE.BIT, ADDR_MODE.R, RT_8BIT.A, parameter_byte=7),
-    0xCB: Instruction(IN_TYPE.BIT, ADDR_MODE.R, RT_8BIT.C, parameter_byte=0),
+    0x87: Instruction(IN_TYPE.RES, ADDR_MODE.R, RT_8BIT.A, parameter_byte=0),
     0xE0: Instruction(IN_TYPE.LD, ADDR_MODE.A8_R, RT_8BIT.A),
 }
 

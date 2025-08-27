@@ -169,12 +169,7 @@ class CPU:
         # Handle CB prefix
 
         if opcode == 0xCB:
-            self.is_extended = True
-
-            cb_opcode = self._pc_read_u8()
-            self.current_instruction = CB_INSTRUCTIONS_DICT.get(
-                cb_opcode, ILLEGAL_INSTRUCTION
-            )
+            self.fetch_instruction_cb()
         else:
             self.current_instruction = INSTRUCTIONS_DICT.get(
                 opcode, ILLEGAL_INSTRUCTION
@@ -184,6 +179,19 @@ class CPU:
 
         length = operand_length_map.get(self.current_instruction.addr_mode, 0)
 
+        self.current_operands = [self._pc_read_u8() for _ in range(length)]
+
+    def fetch_instruction_cb(self):
+        """Fetch a CB-prefixed instruction."""
+        self.is_extended = True
+        cb_opcode = self._pc_read_u8()
+        instr = CB_INSTRUCTIONS_DICT.get(cb_opcode, ILLEGAL_INSTRUCTION)
+        if instr == ILLEGAL_INSTRUCTION:
+            raise RuntimeError(f"Illegal CB instruction: 0xCB 0x{cb_opcode:02X}")
+        else:
+            self.current_instruction = instr
+
+        length = operand_length_map.get(self.current_instruction.addr_mode, 0)
         self.current_operands = [self._pc_read_u8() for _ in range(length)]
 
     def fetch_data(self, instruction=None, operands=None):
