@@ -31,7 +31,7 @@ def _load_rom_into_mmu(mmu, rom_bytes):
                 break
 
 
-def run(rom_path: Path | None = None, max_steps: int = 50):
+def run(rom_path: Path | None = None, max_steps: int = 200_000):
     repo_root = Path(__file__).resolve().parent
 
     rom_path = rom_path or _find_first_rom(repo_root)

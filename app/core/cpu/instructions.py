@@ -226,6 +226,7 @@ INSTRUCTIONS_DICT = {
     0x87: Instruction(IN_TYPE.ADD, ADDR_MODE.R_R, RT_8BIT.A),
     # ADC A, C
     0x89: Instruction(IN_TYPE.ADC, ADDR_MODE.R_R, RT_8BIT.A, RT_8BIT.C),
+    0x90: Instruction(IN_TYPE.SUB, ADDR_MODE.R_R, RT_8BIT.A, RT_8BIT.B),
     # SBC A, C
     0x99: Instruction(IN_TYPE.SBC, ADDR_MODE.R_R, RT_8BIT.A, RT_8BIT.C),
     0xA0: Instruction(IN_TYPE.AND, ADDR_MODE.R_R, RT_8BIT.A, RT_8BIT.B),
@@ -248,13 +249,15 @@ INSTRUCTIONS_DICT = {
     0xCD: Instruction(IN_TYPE.CALL, ADDR_MODE.D16),
     0xCF: Instruction(IN_TYPE.RST, ADDR_MODE.IMP, parameter_byte=0x08),
     0xE0: Instruction(
-        IN_TYPE.LD, ADDR_MODE.A8_R, RT_8BIT.A
+        IN_TYPE.LDH, ADDR_MODE.A8_R, RT_8BIT.A
     ),  # TODO arrumar ADDR_MODE.LDH
+    0xE2: Instruction(IN_TYPE.LDH, ADDR_MODE.H_R, RT_8BIT.A),
     0xE6: Instruction(IN_TYPE.AND, ADDR_MODE.D8, RT_8BIT.A),
     0xEA: Instruction(IN_TYPE.LD, ADDR_MODE.A16_R, RT_8BIT.A),
     0xF0: Instruction(
-        IN_TYPE.LD, ADDR_MODE.R_A8, RT_8BIT.A
+        IN_TYPE.LDH, ADDR_MODE.R_A8, RT_8BIT.A
     ),  # TODO arrumar ADDR_MODE.LDH
+    0xF2: Instruction(IN_TYPE.LDH, ADDR_MODE.R_H, RT_8BIT.A),
     0xF3: Instruction(IN_TYPE.DI, ADDR_MODE.IMP),
     0xFE: Instruction(IN_TYPE.CP, ADDR_MODE.R_D8, RT_8BIT.A),
     0xFF: Instruction(IN_TYPE.RST, ADDR_MODE.IMP, parameter_byte=0x38),

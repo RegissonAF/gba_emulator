@@ -367,11 +367,107 @@ class CPU:
         return flag_values.get(cond, False)
 
         def cpu_step(self):
-            self.fetch_instruction()  # Decodes opcode and read operands
+            '''Fetch, decode, execute one instruction and advance the MMU by estimated T-cycles.'''
+            # Save PC/opcode for logging
+            old_pc = self.PC
+            self.fetch_instruction()
+            # fetch_instruction already advanced the PC past opcode/operands so fetch_data may rely on that
+            self.fetch_data()
 
-            self.fetch_data()  # Fetches data
+            # Execute the instruction
+            self.execute_instruction()
 
-            self.execute_instruction()  # Executes with resolved data
+            # Estimate whether a conditional JR was taken to compute T-cycles
+            instr = self.current_instruction
+            taken = False
+
+            if instr and instr.in_type == getattr(__import__("app.core.cpu.instructions", fromlist=["IN_TYPE"]).IN_TYPE, "JR", None):
+
+                next_pc_assumed = (old_pc + 1 + len(self.current_operands)) & 0xFFFF
+                taken = (self.PC != next_pc_assumed)
+
+            tcycles = self._estimate_tcycles(instr.in_type if instr else None, instr.addr_mode if instr else None, getattr(instr, "conditional", None) taken=taken)
+
+            # Advance MMU timing
+            if hasattr(self.mmu, "cpu_step"):
+                try:
+                    self.mmu.cpu_step(tcycles)
+                except Exception:
+                    # fallback malually update mmu cycle_counter / ly if mmu has attributes
+                    if hasattr(self.mmu, "cycle_counter"):
+                        self.mmu.cycle_counter = getattr(self.mmu, "cycle_counter", 0) + tcycles
+                        # Update LY ad in memory_interface.step()
+                        while self.mmu.cycle_counter >= 456:
+                            self.mmu.cycle_counter -= 456
+                            self.mmu.ly = (getattr(self.mmu, "ly", 0) + 1) % 154
+                    else:
+                        # fallback manual update
+                        if hasattr(self.mmu, "cycle_counter"):
+                            self.mmu.cycle_counter = getattr(self.mmu, "cycle_counter", 0) + tcycles
+                            while self.mmu.cycle_counter >= 456:
+                                self.mmu.cycle_counter -= 456
+                                self.mmu.ly = (getattr(self.mmu, "ly", 0) + 1) % 154
+                        
+    def _estimate_tcycles(self, in_type=None, addr_mode=None, conditional=None, taken=False):
+        '''Return and estimated number of T-cycles for the current instruction.'''
+
+        # Default
+        in_type = in_type or getattr(self.current_instruction, "in_type", None)
+        addr_mode = addr_mode or getattr(self.current_instruction, "addr_mode", None)
+        conditional = conditional or getattr(self.current_instruction, "conditional", None)
+        
+        # NOP and simple register to register
+        if in_type == getattr(__import__("app.core.cpu.instructions", fromlist=["IN_TYPE"]).IN_TYPE, "NOP", None) or in_type is None:
+            return 4
+
+        # LDH access (reads/writes to 0xFF00 + a8) - typically 3 T-cycles => 12 T
+        elif in_type == getattr(__import__("app.core.cpu.instructions", fromlist=["IN_TYPE"]).IN_TYPE, "LDH", None):
+            return 12
+
+        # LD instructions
+        elif in_type == getattr(__import__("app.core.cpu.instructions", fromlist=["IN_TYPE"]).IN_TYPE, "LD", None):
+            # LD, r, r (register-register)
+            if addr_mode == getattr(__import__("app.core.cpu.instructions", fromlist=["ADDR_MODE"]).ADDR_MODE, "R_R", None):
+                return 4
+            
+            # LD, r, d8 or LD r, a8 -> 8 or 12
+            elif addr_mode in (
+                getattr(__import__("app.core.cpu.instructions", fromlist=["ADDR_MODE"]).ADDR_MODE, "R_D8", None),
+                getattr(__import__("app.core.cpu.instructions", fromlist=["ADDR_MODE"]).ADDR_MODE, "R_A8", None),
+                getattr(__import__("app.core.cpu.instructions", fromlist=["ADDR_MODE"]).ADDR_MODE, "A8_R", None),
+            ):
+                return 8 if addr_mode == "AM_R_D8" else 12
+            
+            # Memory based loads
+            elif addr_mode == getattr(__import__("app.core.cpu.instructions", fromlist=["ADDR_MODE"]).ADDR_MODE, "MR", None):
+                return 8
+            
+        # CP immediate likely 8 T
+        elif in_type == getattr(__import__("app.core.cpu.instructions", fromlist=["IN_TYPE"]).IN_TYPE, "CP", None):
+            return 8
+        
+        # JR conditional vs unconditional
+        elif in_type == getattr(__import__("app.core.cpu.instructions", fromlist=["IN_TYPE"]).IN_TYPE, "JR", None):
+            # conditional: 8 T if not taken, 12 T if taken
+            if conditional:
+                return 12 if taken else 8
+
+            # Unconditional JR e8: 12 T
+            return 12
+        
+        # ADD/AND/XOR/OR with register: 4 T
+        elif in_type in (
+            getattr(__import__("app.core.cpu.instructions", fromlist=["IN_TYPE"]).IN_TYPE, "ADD", None),
+            getattr(__import__("app.core.cpu.instructions", fromlist=["IN_TYPE"]).IN_TYPE, "ADC", None),
+            getattr(__import__("app.core.cpu.instructions", fromlist=["IN_TYPE"]).IN_TYPE, "SUB", None),
+            getattr(__import__("app.core.cpu.instructions", fromlist=["IN_TYPE"]).IN_TYPE, "AND", None),
+            getattr(__import__("app.core.cpu.instructions", fromlist=["IN_TYPE"]).IN_TYPE, "XOR", None),
+            getattr(__import__("app.core.cpu.instructions", fromlist=["IN_TYPE"]).IN_TYPE, "OR", None),
+        ):
+            return 4
+
+        # Default to 8 T
+        return 8
 
     # Instruction Handlers (by IN_TYPE)
     def _handle_nop(self, *args):
@@ -478,33 +574,31 @@ class CPU:
 
     def _handle_ldh(self, addr_mode, rt_8bit, rt_16bit, data):
         """Handle LDH instructions (8-bit registers, 16-bit registers, or (HL))."""
-
-        def ldh_r8():
-            if rt_8bit != RT_8BIT.A:
-                raise RuntimeError("LDH must target A")
+        if addr_mode == ADDR_MODE.A8_R:
+            imm8 = data & 0xFF
+            addr = 0xFF00 + imm8
             value = getattr(self, rt_8bit)
-            self.mmu.write_byte(0xFF00 + self.C, value)
+            self.mmu.write_byte(addr, value)
 
-        def ldh_r16():
-            if rt_16bit != RT_16BIT.HL:
-                raise RuntimeError("LDH must target HL")
-            value = getattr(self, rt_16bit)
-            self.mmu.write_byte(0xFF00 + self.C, value & 0xFF)
+        elif addr_mode == ADDR_MODE.H_R:
+            addr = 0xFF00 + (self.C & 0xFF)
+            value = getattr(self, rt_8bit)
+            self.mmu.write_byte(addr, value)
 
-        def ldh_hl():
-            value = self.mmu.read_byte(self.HL)
-            self.mmu.write_byte(0xFF00 + self.C, value)
+        elif addr_mode == ADDR_MODE.R_A8:
+            imm8 = data & 0xFF
+            addr = 0xFF00 + imm8
+            value = self.mmu.read_byte(addr)
+            setattr(self, rt_8bit, value)
 
-        dispatch = {
-            ADDR_MODE.R: (ldh_r16 if rt_16bit else ldh_r8),
-            ADDR_MODE.MR: ldh_hl,
-        }
-
-        handler = dispatch.get(addr_mode)
-        if handler:
-            handler()
+        elif addr_mode == ADDR_MODE.R_H:
+            addr = 0xFF00 + (self.C & 0xFF)
+            value = self.mmu.read_byte(addr)
+            setattr(self, rt_8bit, value)
         else:
-            raise RuntimeError(f"Unhandled LDH addressing mode: {addr_mode}")
+            raise NotImplementedError(
+                f"LDH handler: Unhandled addr_mode {addr_mode}, args: {rt_8bit}, {rt_16bit}, {data}"
+            )
 
     def _handle_inc(self, addr_mode, rt_8bit, rt_16bit, data):
         """Handle INC instructions (8-bit registers, 16-bit registers, or (HL))."""
@@ -918,16 +1012,15 @@ class CPU:
 
     def _handle_cp(self, addr_mode, rt_8bit, rt_16bit, data):
         """Handle CP (compare A with value) instruction."""
+        value = self.fetch_data()
 
         a = self.A
+        result = (a - value) & 0xFFFF
 
-        result = a - self.fetch_data()
+        half_borrow = a < value
+        borrow = a < value
 
-        borrow = result < 0
-
-        half_borrow = (a & 0x0F) < (self.fetch_data() & 0x0F)
-
-        self.set_flags(z=(result & 0xFF) == 0, n=1, h=half_borrow, c=borrow)
+        self.set_flags(z=((result & 0xFF) == 0), n=1, h=half_borrow, c=borrow)
 
     def _handle_rl(self, addr_mode, rt_8bit, rt_16bit, data):
         """Handle RL (rotate A left through carry) instruction."""
